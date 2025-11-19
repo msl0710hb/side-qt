@@ -1,4 +1,4 @@
-name: Qt 6.9.2 源码编译 CI（官方链接+跨平台兼容）
+name: Qt 6.9.2 源码编译 CI（官方链接+全量修复）
 on:
   push:
     branches: [ main ]
@@ -64,13 +64,11 @@ jobs:
         run: |
           wget -c --tries=3 ${{ matrix.official_url }}${{ matrix.qt_src }} -O ${{ matrix.qt_src }} --timeout=600
 
-      # 3. 跨平台验证文件完整性（核心修复：用 du 命令替代 stat）
+      # 3. 跨平台验证文件完整性（du 命令兼容所有系统）
       - name: 验证源码包完整性
         if: matrix.os != 'windows-latest'
         run: |
-          # 跨平台通用：du -sb 输出文件大小（字节），不受系统格式限制
           FILE_SIZE=$(du -sb ${{ matrix.qt_src }} | awk '{print $1}')
-          # Qt 6.9.2 全量源码包约 1.1G，小于 1G 视为不完整
           if [ $FILE_SIZE -lt 1000000000 ]; then
             echo "Qt 源码包下载不完整！实际大小：$FILE_SIZE 字节（需至少 1G）"
             exit 1
@@ -83,7 +81,7 @@ jobs:
           cd qt-everywhere-src-6.9.2
           echo "QT_SRC_DIR=$(pwd)" >> $GITHUB_ENV
 
-      # 5. 配置 Qt 编译（跳过冗余模块）
+      # 5. 配置 Qt 编译（核心修复：移除 -ninja，改用 -- -GNinja）
       - name: 配置 Qt 编译（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
@@ -91,8 +89,9 @@ jobs:
           ./configure \
             -prefix ${{ matrix.qt_install_dir }} \
             -release -opensource -confirm-license \
-            -nomake examples -nomake tests -ninja \
-            -skip qtwebengine
+            -nomake examples -nomake tests \
+            -skip qtwebengine \
+            -- -GNinja  # 指定 Ninja 生成器（Qt 6.9.2 正确语法）
 
       - name: 配置 Qt 编译（Windows）
         if: matrix.os == 'windows-latest'
@@ -102,8 +101,9 @@ jobs:
           .\configure.bat `
             -prefix "${{ matrix.qt_install_dir }}" `
             -release -opensource -confirm-license `
-            -nomake examples -nomake tests -ninja `
-            -skip qtwebengine
+            -nomake examples -nomake tests `
+            -skip qtwebengine `
+            -- -GNinja  # Windows 平台同样使用该语法
 
       # 6. 并行编译 Qt 6.9.2
       - name: 编译 Qt 6.9.2
