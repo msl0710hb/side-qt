@@ -1,4 +1,4 @@
-name: Qt 6.9.2 核心模块编译 CI（终极依赖修复）
+name: Qt 6.9.2 预编译包 CI（全平台兼容+批量构建）
 on:
   push:
     branches: [ main ]
@@ -11,290 +11,96 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
         include:
+          # 适配不同系统的 Qt 架构和可执行文件后缀
           - os: macos-latest
-            qt_src: qt-everywhere-src-6.9.2.tar.xz
-            official_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/
-            extract_cmd: tar -xf
-            qt_install_dir: ${{ github.workspace }}/qt-6.9.2-install
+            qt_arch: clang_64
+            exec_suffix: ""
           - os: windows-latest
-            qt_src: qt-everywhere-src-6.9.2.zip
-            official_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/
-            qt_install_dir: ${{ github.workspace }}\qt-6.9.2-install
+            qt_arch: win64_msvc2019_64
+            exec_suffix: .exe
           - os: ubuntu-latest
-            qt_src: qt-everywhere-src-6.9.2.tar.xz
-            official_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/
-            extract_cmd: tar -xf
-            qt_install_dir: ${{ github.workspace }}/qt-6.9.2-install
+            qt_arch: gcc_64
+            exec_suffix: ""
     runs-on: ${{ matrix.os }}
 
     steps:
       - name: 检出项目源代码
         uses: actions/checkout@v4
 
-      # 1. 安装基础编译依赖
-      - name: 安装依赖（Ubuntu）
+      # 核心步骤：安装官方预编译 Qt 6.9.2（5分钟完成，缓存加速）
+      - name: 安装 Qt 6.9.2（官方预编译包）
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: "6.9.2"
+          arch: ${{ matrix.qt_arch }}
+          cache: true  # 缓存 Qt 包，后续构建秒级完成
+          modules: "qtcore qtgui qtwidgets"  # 仅安装核心模块，精简体积
+          set-env: true  # 自动配置 Qt6_DIR 环境变量
+
+      # 补充 Linux 系统依赖（Qt 图形相关）
+      - name: 安装 Linux 基础依赖
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y \
-            build-essential cmake ninja-build python3 \
-            libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-dev \
-            libxcb-xinerama0-dev libxcb-icccm4-dev libxcb-keysyms1-dev \
-            libxcb-image0-dev libxcb-util0-dev libxcb-xinput-dev \
-            libxcb-xfixes0-dev libxcb-xkb-dev zlib1g-dev
-          sudo apt-get clean
-          sudo rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+          sudo apt-get install -y libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-dev
+          sudo apt-get clean  # 清理缓存，释放空间
 
-      - name: 安装依赖（macOS）
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew install cmake ninja python3 pkg-config
-          brew cleanup
-
-      - name: 安装依赖（Windows）
-        if: matrix.os == 'windows-latest'
-        run: |
-          choco install cmake ninja python3 7zip -y
-          echo "CMAKE_PREFIX_PATH=C:\Program Files\CMake\bin" >> $env:GITHUB_ENV
-          echo "C:\Program Files\7-Zip" >> $env:GITHUB_PATH
-
-      # 2. 下载 Qt 6.9.2 源码
-      - name: 下载 Qt 6.9.2 源码（Linux/macOS）
-        if: matrix.os != 'windows-latest'
-        run: |
-          wget -c --tries=3 ${{ matrix.official_url }}${{ matrix.qt_src }} -O ${{ matrix.qt_src }} --timeout=600
-
-      - name: 下载 Qt 6.9.2 源码（Windows）
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $outputFile = "${{ matrix.qt_src }}"
-          $url = "${{ matrix.official_url }}${{ matrix.qt_src }}"
-          $retryCount = 3
-          $retryDelay = 5
-          $success = $false
-
-          for ($i = 1; $i -le $retryCount; $i++) {
-            try {
-              Invoke-WebRequest -Uri $url -OutFile $outputFile -UseBasicParsing -MaximumRetryCount ($retryCount - 1) -RetryIntervalSec $retryDelay
-              $success = $true
-              break
-            }
-            catch {
-              Write-Warning "下载失败：$($_.Exception.Message)"
-              if ($i -eq $retryCount) { throw "重试 $retryCount 次后仍下载失败" }
-              Start-Sleep -Seconds $retryDelay
-            }
-          }
-
-          $fileSize = (Get-Item $outputFile).Length
-          if ($fileSize -lt 1000000000) {
-            throw "Qt 源码包下载不完整！实际大小：$fileSize 字节（需至少 1G）"
-          }
-
-      # 3. 跨平台验证文件完整性（Linux/macOS）
-      - name: 验证源码包完整性（Linux/macOS）
-        if: matrix.os != 'windows-latest'
-        run: |
-          FILE_SIZE=$(du -sb ${{ matrix.qt_src }} | awk '{print $1}')
-          if [ $FILE_SIZE -lt 1000000000 ]; then
-            echo "Qt 源码包下载不完整！实际大小：$FILE_SIZE 字节（需至少 1G）"
-            exit 1
-          fi
-
-      # 4. 解压源码包
-      - name: 解压 Qt 源码（Linux/macOS）
-        if: matrix.os != 'windows-latest'
-        run: |
-          ${{ matrix.extract_cmd }} ${{ matrix.qt_src }}
-          cd qt-everywhere-src-6.9.2
-          echo "QT_SRC_DIR=$(pwd)" >> $GITHUB_ENV
-
-      - name: 解压 Qt 源码（Windows）
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $qtSrc = "${{ matrix.qt_src }}"
-          7z x $qtSrc -aoa -bd
-          cd qt-everywhere-src-6.9.2
-          echo "QT_SRC_DIR=$(Get-Location | Select-Object -ExpandProperty Path)" >> $env:GITHUB_ENV
-
-      # 5. 配置 Qt 编译（核心修复：添加 -skip qtlottie，解决依赖冲突）
-      - name: 配置 Qt 编译（Linux/macOS）
-        if: matrix.os != 'windows-latest'
-        run: |
-          cd ${{ env.QT_SRC_DIR }}
-          ./configure \
-            -prefix ${{ matrix.qt_install_dir }} \
-            -release -opensource -confirm-license \
-            -nomake examples -nomake tests \
-            -skip qt3d -skip qtactiveqt -skip qtcharts -skip qtcoap -skip qtconnectivity -skip qtdatavis3d -skip qtdeclarative \
-            -skip qtdoc -skip qtgrpc -skip qtgraphs -skip qtlottie -skip qtimageformats -skip qtlocation -skip qtmultimedia \
-            -skip qtnetworkauth -skip qtopcua -skip qtpositioning -skip qtprintsupport -skip qtquick3d -skip qtquicktimeline \
-            -skip qtremoteobjects -skip qtscxml -skip qtsensors -skip qtserialbus -skip qtserialport -skip qtspeech \
-            -skip qtstyleplugins -skip qtsvg -skip qttools -skip qttranslations -skip qtvirtualkeyboard -skip qtwayland \
-            -skip qtwebchannel -skip qtwebengine -skip qtwebsockets -skip qtwebview -skip qtwinextras -skip qtx11extras \
-            -skip qtxmlpatterns \
-            -- -GNinja
-
-      - name: 配置 Qt 编译（Windows）
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          cd $env:QT_SRC_DIR
-          .\configure.bat `
-            -prefix "${{ matrix.qt_install_dir }}" `
-            -release -opensource -confirm-license `
-            -nomake examples -nomake tests `
-            -skip qt3d -skip qtactiveqt -skip qtcharts -skip qtcoap -skip qtconnectivity -skip qtdatavis3d -skip qtdeclarative `
-            -skip qtdoc -skip qtgrpc -skip qtgraphs -skip qtlottie -skip qtimageformats -skip qtlocation -skip qtmultimedia `
-            -skip qtnetworkauth -skip qtopcua -skip qtpositioning -skip qtprintsupport -skip qtquick3d -skip qtquicktimeline `
-            -skip qtremoteobjects -skip qtscxml -skip qtsensors -skip qtserialbus -skip qtserialport -skip qtspeech `
-            -skip qtstyleplugins -skip qtsvg -skip qttools -skip qttranslations -skip qtvirtualkeyboard -skip qtwayland `
-            -skip qtwebchannel -skip qtwebengine -skip qtwebsockets -skip qtwebview -skip qtwinextras -skip qtx11extras `
-            -skip qtxmlpatterns `
-            -- -GNinja
-
-      # 6. 并行编译 Qt 6.9.2
-      - name: 编译 Qt 6.9.2（Linux/macOS）
-        if: matrix.os != 'windows-latest'
-        run: |
-          cd ${{ env.QT_SRC_DIR }}
-          cmake --build . --parallel $(($(nproc 2>/dev/null || echo 4) / 2))
-
-      - name: 编译 Qt 6.9.2（Windows）
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          cd $env:QT_SRC_DIR
-          $threadCount = [math]::Floor((Get-CimInstance Win32_Processor).NumberOfLogicalProcessors / 2)
-          cmake --build . --parallel $threadCount
-
-      # 7. 安装 Qt 到指定目录
-      - name: 安装 Qt 6.9.2（Linux/macOS）
-        if: matrix.os != 'windows-latest'
-        run: |
-          cd ${{ env.QT_SRC_DIR }}
-          cmake --install .
-
-      - name: 安装 Qt 6.9.2（Windows）
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          cd $env:QT_SRC_DIR
-          cmake --install .
-
-      # 8. 配置 Qt 环境变量
-      - name: 配置 Qt 环境（Linux/macOS）
-        if: matrix.os != 'windows-latest'
-        run: |
-          echo "Qt6_DIR=${{ matrix.qt_install_dir }}/lib/cmake/Qt6" >> $GITHUB_ENV
-          echo "${{ matrix.qt_install_dir }}/bin" >> $GITHUB_PATH
-          qmake --version || { echo "Qt 环境配置失败！"; exit 1; }
-
-      - name: 配置 Qt 环境（Windows）
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $qtInstallDir = "${{ matrix.qt_install_dir }}"
-          echo "Qt6_DIR=$qtInstallDir\lib\cmake\Qt6" >> $env:GITHUB_ENV
-          echo "$qtInstallDir\bin" >> $env:GITHUB_PATH
-          qmake --version || { Write-Error "Qt 环境配置失败！"; exit 1; }
-
-      # 9. 自动识别所有 dayN 工程
-      - name: 自动识别 dayN 工程（Linux/macOS）
-        if: matrix.os != 'windows-latest'
+      # 自动识别所有 dayN 工程（保持你原有的工程结构）
+      - name: 自动识别 dayN 工程
+        id: find_projects
         shell: bash
         run: |
-          PROJECTS=$(find . -maxdepth 1 -type d -name "day[0-9]*" | sed 's|^\./||' | sort -V)
-          echo "PROJECTS=($PROJECTS)" >> $GITHUB_ENV
+          # 跨平台查找 day+数字 格式的目录，按数字排序
+          if [[ ${{ matrix.os }} == "windows-latest" ]]; then
+            PROJECTS=$(powershell -Command "(Get-ChildItem -Directory -Filter 'day[0-9]*' | Sort-Object { [int]($_.Name -replace 'day', '') }).Name -join ' '")
+          else
+            PROJECTS=$(find . -maxdepth 1 -type d -name "day[0-9]*" | sed 's|^\./||' | sort -V)
+          fi
+          echo "PROJECTS=$PROJECTS" >> $GITHUB_ENV
           echo "识别到的工程：$PROJECTS"
 
-      - name: 自动识别 dayN 工程（Windows）
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $projects = Get-ChildItem -Directory -Path . -Filter "day[0-9]*" | Select-Object -ExpandProperty Name | Sort-Object { [int]($_.Replace('day', '')) }
-          $projectsStr = $projects -join ' '
-          echo "PROJECTS=($projectsStr)" >> $env:GITHUB_ENV
-          Write-Host "识别到的工程：$projectsStr"
-
-      # 10. 批量构建所有 dayN 工程
-      - name: 批量构建所有工程（Linux/macOS）
-        if: matrix.os != 'windows-latest'
+      # 批量构建所有 dayN 工程（使用你的 CMakePresets.json 配置）
+      - name: 批量构建 dayN 工程
+        if: env.PROJECTS != ''
         shell: bash
         run: |
-          PROJECTS=(${GITHUB_ENV#*PROJECTS=})
-          case "${{ matrix.os }}" in
-            macos-latest) PRESET="macos-release" ;;
-            ubuntu-latest) PRESET="linux-release" ;;
-          esac
-          if [ ${#PROJECTS[@]} -eq 0 ]; then
-            echo "未识别到任何 dayN 工程，跳过构建！"
-            exit 0
-          fi
-          for proj in "${PROJECTS[@]}"; do
+          IFS=' ' read -r -a projects_arr <<< "$PROJECTS"
+          for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 构建工程：$proj ===================="
+            # 创建构建目录
             mkdir -p build/$proj-build
-            cmake --preset=$PRESET -S $proj -B build/$proj-build
-            cmake --build build/$proj-build --config Release --parallel $(($(nproc 2>/dev/null || echo 4) / 2))
+            # 使用 CMakePresets 构建（与你本地配置一致）
+            cmake --preset=${{ matrix.os == 'macos-latest' && 'macos-release' || (matrix.os == 'windows-latest' && 'win-release' || 'linux-release') }} \
+                  -S $proj -B build/$proj-build
+            # 并行编译（适配系统核心数）
+            if [[ ${{ matrix.os }} == "windows-latest" ]]; then
+              cmake --build build/$proj-build --config Release --parallel (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors
+            else
+              cmake --build build/$proj-build --config Release --parallel $(nproc 2>/dev/null || echo 4)
+            fi
             echo "==================== 工程 $proj 构建完成 ===================="
           done
 
-      - name: 批量构建所有工程（Windows）
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $projectsStr = $env:PROJECTS
-          $projects = $projectsStr -split ' ' | Where-Object { $_ -ne '' }
-          $preset = "win-release"
-          if ($projects.Count -eq 0) {
-            Write-Host "未识别到任何 dayN 工程，跳过构建！"
-            exit 0
-          }
-          foreach ($proj in $projects) {
-            Write-Host "`n==================== 构建工程：$proj ===================="
-            mkdir -p build/$proj-build
-            cmake --preset=$preset -S $proj -B build/$proj-build
-            $threadCount = [math]::Floor((Get-CimInstance Win32_Processor).NumberOfLogicalProcessors / 2)
-            cmake --build build/$proj-build --config Release --parallel $threadCount
-            Write-Host "==================== 工程 $proj 构建完成 ===================="
-          }
-
-      # 11. 运行所有工程（验证可用性）
-      - name: 运行工程（Linux/macOS）
-        if: matrix.os != 'windows-latest'
+      # 批量运行工程（验证可用性）
+      - name: 批量运行 dayN 工程
+        if: env.PROJECTS != ''
         shell: bash
         run: |
-          PROJECTS=(${GITHUB_ENV#*PROJECTS=})
-          if [ ${#PROJECTS[@]} -eq 0 ]; then exit 0; fi
-          for proj in "${PROJECTS[@]}"; do
+          IFS=' ' read -r -a projects_arr <<< "$PROJECTS"
+          for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 运行工程：$proj ===================="
-            EXEC_PATH="./build/$proj-build/Release/${proj^}"
-            if [ -f "$EXEC_PATH" ]; then
-              chmod +x $EXEC_PATH
-              $EXEC_PATH || echo "工程 $proj 运行失败（非致命错误）"
+            # 查找可执行文件（适配不同系统路径）
+            if [[ ${{ matrix.os }} == "windows-latest" ]]; then
+              EXEC_PATH=$(find build/$proj-build -name "${proj^^}${{ matrix.exec_suffix }}" -type f -path "*/Release/*")
             else
-              echo "工程 $proj 可执行文件未找到：$EXEC_PATH"
+              EXEC_PATH=$(find build/$proj-build -name "${proj^}${{ matrix.exec_suffix }}" -type f -executable -path "*/Release/*")
             fi
+            # 运行可执行文件
+            if [[ -f "$EXEC_PATH" ]]; then
+              echo "找到可执行文件：$EXEC_PATH"
+              $EXEC_PATH || echo "工程 $proj 运行返回非零状态（非致命错误）"
+            else
+              echo "警告：工程 $proj 未找到可执行文件"
+            fi
+            echo "==================== 工程 $proj 运行完成 ===================="
           done
-
-      - name: 运行工程（Windows）
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $projectsStr = $env:PROJECTS
-          $projects = $projectsStr -split ' ' | Where-Object { $_ -ne '' }
-          if ($projects.Count -eq 0) { exit 0; }
-          foreach ($proj in $projects) {
-            Write-Host "`n==================== 运行工程：$proj ===================="
-            $execPath = ".\build\$proj-build\Release\$($proj.ToUpper()).exe"
-            if (Test-Path $execPath) {
-              & $execPath
-              if ($LASTEXITCODE -ne 0) {
-                Write-Warning "工程 $proj 运行失败（非致命错误）"
-              }
-            } else {
-              Write-Warning "工程 $proj 可执行文件未找到：$execPath"
-            }
-          }
