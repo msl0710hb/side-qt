@@ -1,4 +1,4 @@
-name: Qt 6.9.2 源码编译 CI（官方正版链接+多平台兼容）
+name: Qt 6.9.2 源码编译 CI（官方链接+全平台兼容）
 on:
   push:
     branches: [ main ]
@@ -59,20 +59,20 @@ jobs:
           choco install cmake ninja python3 -y
           echo "CMAKE_PREFIX_PATH=C:\Program Files\CMake\bin" >> $env:GITHUB_ENV
 
-      # 2. 从 Qt 官方正版链接下载源码（修复 404）
+      # 2. 从 Qt 官方正版链接下载源码
       - name: 下载 Qt 6.9.2 源码（官方正版）
         run: |
           wget -c --tries=3 ${{ matrix.official_url }}${{ matrix.qt_src }} -O ${{ matrix.qt_src }} --timeout=600
 
-      # 3. 跨平台验证文件完整性（修复 stat 命令格式问题）
+      # 3. 跨平台验证文件完整性（核心修复：修正 Linux 平台标识）
       - name: 验证源码包完整性
         if: matrix.os != 'windows-latest'
         run: |
-          # 适配 Linux/macOS 不同的 stat 命令格式
-          if [ "${{ matrix.os }}" == "linux-latest" ]; then
-            FILE_SIZE=$(stat -c%s ${{ matrix.qt_src }})
+          # 关键修复：Linux 平台标识为 ubuntu-latest（而非 linux-latest）
+          if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+            FILE_SIZE=$(stat -c%s ${{ matrix.qt_src }})  # Linux 正确格式
           else
-            FILE_SIZE=$(stat -f%s ${{ matrix.qt_src }})
+            FILE_SIZE=$(stat -f%s ${{ matrix.qt_src }})  # macOS 正确格式
           fi
           # Qt 6.9.2 全量源码包约 1.1G，小于 1G 视为不完整
           if [ $FILE_SIZE -lt 1000000000 ]; then
