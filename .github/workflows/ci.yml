@@ -1,0 +1,109 @@
+name: Qt Cross-Platform CI
+
+# 触发条件：main 分支的 push 和 pull request
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-run:
+    strategy:
+      # 多平台矩阵：覆盖三大主流系统
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      # 1. 检出代码
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      # 2. 动态查询 Qt 6.9.2 适配架构（彻底修复字符数组问题）
+      - name: Detect Qt architecture
+        id: qt_arch
+        shell: pwsh
+        run: |
+          # 安装指定版本的 aqtinstall（Qt 安装工具）
+          python -m pip install -q aqtinstall==3.1.*
+          
+          # 系统映射：匹配 aqtinstall 所需的主机名格式
+          $hostMap = @{
+            'Windows' = 'windows'
+            'macOS'   = 'mac'
+            'Linux'   = 'linux'
+          }
+          $hostName = $hostMap[$Env:RUNNER_OS]
+          
+          # 执行 aqt 命令查询架构，强制转换为字符串避免字符数组解析
+          $output = [string](python -m aqt list-qt $hostName desktop --arch 6.9.2)
+          
+          # 分割换行符，过滤空行/纯空格行，强制声明为数组
+          $archList = @($output -split "`r?`n" | Where-Object { $_ -match '\S' })
+          
+          # 校验架构列表有效性
+          if (-not $archList -or $archList.Count -eq 0) {
+            throw "No valid architecture found for Qt 6.9.2 on $hostName (OS: ${{ matrix.os }})"
+          }
+          
+          # 安全获取第一个有效架构（避免字符数组问题）
+          $arch = $archList | Select-Object -First 1
+          $arch = $arch.Trim()
+          
+          # 输出日志便于调试，写入环境变量供后续步骤使用
+          Write-Host "✅ Detected Qt architecture for ${{ matrix.os }}: $arch"
+          Write-Output "arch=$arch" >> $Env:GITHUB_OUTPUT
+
+      # 3. 安装 Qt 6.9.2（锁定版本，缓存加速）
+      - name: Install Qt 6.9.2
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.9.2'          # 与查询架构的版本完全一致
+          arch: ${{ steps.qt_arch.outputs.arch }} # 仅传递单个有效架构
+          cache: true               # 开启缓存，加速后续构建
+          aqtversion: '==3.1.*'     # 锁定 aqtinstall 版本，避免兼容波动
+          dir: ${{ github.workspace }}/Qt # Qt 安装目录（统一路径）
+
+      # 4. CMake 配置（跨平台预设适配）
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          # 根据系统选择对应的 CMake 预设
+          switch -Wildcard ('${{ matrix.os }}') {
+            'windows-latest' { $preset = 'win-release' }
+            'macos-latest'   { $preset = 'macos-release' }
+            'ubuntu-latest'  { $preset = 'linux-release' }
+            default { throw "❌ Unsupported OS: ${{ matrix.os }}" }
+          }
+          
+          # 执行 CMake 配置
+          Write-Host "🔧 Configuring CMake with preset: $preset"
+          cmake --preset=$preset
+
+      # 5. 构建项目（指定 Release 模式，确保产物优化）
+      - name: Build project
+        shell: pwsh
+        run: |
+          Write-Host "🏗️ Building project for ${{ matrix.os }}"
+          cmake --build build --config Release --parallel 4 # 并行构建加速
+
+      # 6. 运行可执行文件（跨平台路径适配）
+      - name: Run application (Unix: macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          # Unix 平台产物路径：build/Release/可执行文件
+          EXEC_PATH="./build/Release/QtVsCodeTemplate"
+          chmod +x $EXEC_PATH # 确保可执行权限
+          echo "▶️ Running application: $EXEC_PATH"
+          $EXEC_PATH
+
+      - name: Run application (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Windows 平台产物路径：build\Release\可执行文件.exe
+          $EXEC_PATH = ".\build\Release\QtVsCodeTemplate.exe"
+          echo "▶️ Running application: $EXEC_PATH"
+          & $EXEC_PATH
