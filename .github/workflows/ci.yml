@@ -12,31 +12,40 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
         include:
+          # 选用 Qt 6.2.4 LTS（跨平台包最稳定，无 qt_base 缺失问题）
           - os: macos-latest
-            qt_arch: clang_64
-            qt_version: '6.5.3'
+            qt_version: '6.2.4'
+            qt_arch: 'clang_64'
           - os: windows-latest
-            qt_arch: win64_msvc2022_64
-            qt_version: '6.5.3'
+            qt_version: '6.2.4'
+            qt_arch: 'win64_msvc2019_64'  # 6.2.4 对应 MSVC 2019 架构（兼容性更广）
           - os: ubuntu-latest
-            qt_arch: gcc_64
-            qt_version: '6.5.3'
+            qt_version: '6.2.4'
+            qt_arch: 'gcc_64'
     runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # 安装 Qt 6.5.3 LTS（稳定无包缺失问题）
+      # 修复 Windows Python 权限警告：手动指定 Python 路径
+      - name: Set Python path (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          echo "PYTHONPATH=C:\hostedtoolcache\windows\Python\3.11.9\x64" >> $env:GITHUB_ENV
+          echo "PATH=C:\hostedtoolcache\windows\Python\3.11.9\x64;$env:PATH" >> $env:GITHUB_ENV
+
+      # 极简 Qt 安装（仅保留核心参数，避免冲突）
       - name: Install Qt ${{ matrix.qt_version }}
         uses: jurplel/install-qt-action@v3
         with:
           version: ${{ matrix.qt_version }}
           arch: ${{ matrix.qt_arch }}
           cache: true
-          aqtversion: '==3.1.21'
+          aqtversion: '==3.1.10'  # 锁定更稳定的 aqtinstall 旧版本（适配 Qt 6.2.4）
           dir: ${{ github.workspace }}/Qt
-          # 移除无效的 timeout-minutes 参数，避免警告
+          modules: 'qtbase'  # 强制安装核心模块，避免包缺失
 
       # 配置 CMake
       - name: Configure CMake
@@ -54,7 +63,7 @@ jobs:
         shell: bash
         run: cmake --build build --config Release --parallel 4
 
-      # Linux 安装运行依赖
+      # Linux 运行依赖
       - name: Install runtime dependencies (Linux)
         if: runner.os == 'Linux'
         shell: bash
