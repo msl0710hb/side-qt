@@ -36,7 +36,10 @@
       "cacheVariables": {
         "CMAKE_PREFIX_PATH": "$env{Qt6_DIR}",
         "CMAKE_C_COMPILER": "cl.exe",
-        "CMAKE_CXX_COMPILER": "cl.exe"
+        "CMAKE_CXX_COMPILER": "cl.exe",
+        "Qt6Widgets_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Widgets",
+        "Qt6Core_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Core",
+        "Qt6Gui_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Gui"
       }
     },
     {
@@ -48,7 +51,10 @@
         "CMAKE_PREFIX_PATH": "$env{Qt6_DIR}",
         "CMAKE_C_COMPILER": "gcc",
         "CMAKE_CXX_COMPILER": "g++",
-        "CMAKE_EXE_LINKER_FLAGS": "-ldl -lpthread"
+        "CMAKE_EXE_LINKER_FLAGS": "-ldl -lpthread",
+        "Qt6Widgets_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Widgets",
+        "Qt6Core_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Core",
+        "Qt6Gui_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Gui"
       }
     }
   ]
