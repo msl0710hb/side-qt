@@ -1,4 +1,4 @@
-name: Qt 6.9.2 核心模块编译 CI（语法修复+磁盘优化）
+name: Qt 6.9.2 核心模块编译 CI（依赖修复+全兼容）
 on:
   push:
     branches: [ main ]
@@ -119,7 +119,7 @@ jobs:
           cd qt-everywhere-src-6.9.2
           echo "QT_SRC_DIR=$(Get-Location | Select-Object -ExpandProperty Path)" >> $env:GITHUB_ENV
 
-      # 5. 配置 Qt 编译（核心修复：-skip 选项紧跟模块名，不拆分换行）
+      # 5. 配置 Qt 编译（核心修复：添加 -skip qtgraphs，解决依赖冲突）
       - name: 配置 Qt 编译（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
@@ -127,13 +127,13 @@ jobs:
           ./configure \
             -prefix ${{ matrix.qt_install_dir }} \
             -release -opensource -confirm-license \
-            -nomake examples -nomake tests -nomake tools \
+            -nomake examples -nomake tests \
             -skip qt3d -skip qtactiveqt -skip qtcharts -skip qtcoap -skip qtconnectivity -skip qtdatavis3d -skip qtdeclarative \
-            -skip qtdoc -skip qtgrpc -skip qtimageformats -skip qtlocation -skip qtmultimedia -skip qtnetworkauth -skip qtopcua \
-            -skip qtpositioning -skip qtprintsupport -skip qtquick3d -skip qtquicktimeline -skip qtremoteobjects -skip qtscxml \
-            -skip qtsensors -skip qtserialbus -skip qtserialport -skip qtspeech -skip qtstyleplugins -skip qtsvg -skip qttools \
-            -skip qttranslations -skip qtvirtualkeyboard -skip qtwayland -skip qtwebchannel -skip qtwebengine -skip qtwebsockets \
-            -skip qtwebview -skip qtwinextras -skip qtx11extras -skip qtxmlpatterns \
+            -skip qtdoc -skip qtgrpc -skip qtgraphs -skip qtimageformats -skip qtlocation -skip qtmultimedia -skip qtnetworkauth \
+            -skip qtopcua -skip qtpositioning -skip qtprintsupport -skip qtquick3d -skip qtquicktimeline -skip qtremoteobjects \
+            -skip qtscxml -skip qtsensors -skip qtserialbus -skip qtserialport -skip qtspeech -skip qtstyleplugins -skip qtsvg \
+            -skip qttools -skip qttranslations -skip qtvirtualkeyboard -skip qtwayland -skip qtwebchannel -skip qtwebengine \
+            -skip qtwebsockets -skip qtwebview -skip qtwinextras -skip qtx11extras -skip qtxmlpatterns \
             -- -GNinja
 
       - name: 配置 Qt 编译（Windows）
@@ -144,13 +144,13 @@ jobs:
           .\configure.bat `
             -prefix "${{ matrix.qt_install_dir }}" `
             -release -opensource -confirm-license `
-            -nomake examples -nomake tests -nomake tools `
+            -nomake examples -nomake tests `
             -skip qt3d -skip qtactiveqt -skip qtcharts -skip qtcoap -skip qtconnectivity -skip qtdatavis3d -skip qtdeclarative `
-            -skip qtdoc -skip qtgrpc -skip qtimageformats -skip qtlocation -skip qtmultimedia -skip qtnetworkauth -skip qtopcua `
-            -skip qtpositioning -skip qtprintsupport -skip qtquick3d -skip qtquicktimeline -skip qtremoteobjects -skip qtscxml `
-            -skip qtsensors -skip qtserialbus -skip qtserialport -skip qtspeech -skip qtstyleplugins -skip qtsvg -skip qttools `
-            -skip qttranslations -skip qtvirtualkeyboard -skip qtwayland -skip qtwebchannel -skip qtwebengine -skip qtwebsockets `
-            -skip qtwebview -skip qtwinextras -skip qtx11extras -skip qtxmlpatterns `
+            -skip qtdoc -skip qtgrpc -skip qtgraphs -skip qtimageformats -skip qtlocation -skip qtmultimedia -skip qtnetworkauth `
+            -skip qtopcua -skip qtpositioning -skip qtprintsupport -skip qtquick3d -skip qtquicktimeline -skip qtremoteobjects `
+            -skip qtscxml -skip qtsensors -skip qtserialbus -skip qtserialport -skip qtspeech -skip qtstyleplugins -skip qtsvg `
+            -skip qttools -skip qttranslations -skip qtvirtualkeyboard -skip qtwayland -skip qtwebchannel -skip qtwebengine `
+            -skip qtwebsockets -skip qtwebview -skip qtwinextras -skip qtx11extras -skip qtxmlpatterns `
             -- -GNinja
 
       # 6. 并行编译 Qt 6.9.2
