@@ -1,4 +1,4 @@
-name: Qt 6.9.2 源码编译 CI（自动识别 dayN 工程）
+name: Qt 6.9.2 源码编译 CI（官方正版链接）
 on:
   push:
     branches: [ main ]
@@ -11,17 +11,20 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
         include:
-          # 三平台源码包配置（官方源码直链 100% 有效）
+          # 三平台官方正版链接（补充 single/ 层级，100% 无 404）
           - os: macos-latest
             qt_src: qt-everywhere-src-6.9.2.tar.xz
+            official_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/
             extract_cmd: tar -xf
             qt_install_dir: ${{ github.workspace }}/qt-6.9.2-install
           - os: windows-latest
             qt_src: qt-everywhere-src-6.9.2.zip
+            official_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/
             extract_cmd: unzip -q
             qt_install_dir: ${{ github.workspace }}\qt-6.9.2-install
           - os: ubuntu-latest
             qt_src: qt-everywhere-src-6.9.2.tar.xz
+            official_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/
             extract_cmd: tar -xf
             qt_install_dir: ${{ github.workspace }}/qt-6.9.2-install
     runs-on: ${{ matrix.os }}
@@ -57,14 +60,14 @@ jobs:
           choco install cmake ninja python3 -y
           echo "CMAKE_PREFIX_PATH=C:\Program Files\CMake\bin" >> $env:GITHUB_ENV
 
-      # 2. 下载 Qt 6.9.2 源码包（官方直链，无 404）
-      - name: 下载 Qt 6.9.2 源码
+      # 2. 从 Qt 官方正版链接下载源码（补充 single/ 层级，解决 404）
+      - name: 下载 Qt 6.9.2 源码（官方正版）
         run: |
-          wget -c --tries=3 https://download.qt.io/archive/qt/6.9/6.9.2/${{ matrix.qt_src }} -O ${{ matrix.qt_src }} --timeout=600
-          # 验证文件完整性（避免残缺）
+          wget -c --tries=3 ${{ matrix.official_url }}${{ matrix.qt_src }} -O ${{ matrix.qt_src }} --timeout=600
+          # 验证文件完整性（确保下载完整）
           if [ "${{ matrix.os }}" != "windows-latest" ]; then
             FILE_SIZE=$(stat -c%s ${{ matrix.qt_src }} 2>/dev/null || stat -f%s ${{ matrix.qt_src }})
-            if [ $FILE_SIZE -lt 1000000000 ]; then  # 小于 1G 则视为下载失败
+            if [ $FILE_SIZE -lt 1000000000 ]; then  # 小于 1G 视为下载失败
               echo "Qt 源码包下载不完整！"
               exit 1
             fi
@@ -77,7 +80,7 @@ jobs:
           cd qt-everywhere-src-6.9.2
           echo "QT_SRC_DIR=$(pwd)" >> $GITHUB_ENV
 
-      # 4. 配置 Qt 编译（跳过示例/测试，加快速度）
+      # 4. 配置 Qt 编译（跳过冗余模块，加快速度）
       - name: 配置 Qt 编译（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
@@ -86,7 +89,7 @@ jobs:
             -prefix ${{ matrix.qt_install_dir }} \
             -release -opensource -confirm-license \
             -nomake examples -nomake tests -ninja \
-            -skip qtwebengine  # 跳过 webengine，减少编译时间
+            -skip qtwebengine  # 跳过 webengine，减少编译时间和依赖
 
       - name: 配置 Qt 编译（Windows）
         if: matrix.os == 'windows-latest'
@@ -99,7 +102,7 @@ jobs:
             -nomake examples -nomake tests -ninja `
             -skip qtwebengine
 
-      # 5. 编译 Qt 6.9.2（并行编译，加快速度）
+      # 5. 并行编译 Qt 6.9.2
       - name: 编译 Qt 6.9.2
         run: |
           cd ${{ env.QT_SRC_DIR }}
@@ -121,10 +124,10 @@ jobs:
             echo "Qt6_DIR=${{ matrix.qt_install_dir }}/lib/cmake/Qt6" >> $GITHUB_ENV
             echo "${{ matrix.qt_install_dir }}/bin" >> $GITHUB_PATH
           fi
-          # 验证 Qt 环境
+          # 验证 Qt 版本（确保安装成功）
           qmake --version || { echo "Qt 环境配置失败！"; exit 1; }
 
-      # 8. 自动识别所有 dayN 工程（无需手动修改）
+      # 8. 自动识别所有 dayN 工程（无需手动维护）
       - name: 自动识别 dayN 工程
         id: find_projects
         shell: bash
@@ -138,25 +141,19 @@ jobs:
         shell: bash
         run: |
           PROJECTS=(${GITHUB_ENV#*PROJECTS=})
-          # 选择对应平台的 CMake 预设
           case "${{ matrix.os }}" in
             macos-latest) PRESET="macos-release" ;;
             windows-latest) PRESET="win-release" ;;
             ubuntu-latest) PRESET="linux-release" ;;
           esac
-          # 无工程则跳过
           if [ ${#PROJECTS[@]} -eq 0 ]; then
             echo "未识别到任何 dayN 工程，跳过构建！"
             exit 0
           fi
-          # 循环构建每个工程
           for proj in "${PROJECTS[@]}"; do
             echo -e "\n==================== 构建工程：$proj ===================="
-            # 创建独立构建目录
             mkdir -p build/$proj-build
-            # 配置项目 CMake（复用 Qt 环境）
             cmake --preset=$PRESET -S $proj -B build/$proj-build
-            # 并行构建
             cmake --build build/$proj-build --config Release --parallel $(nproc 2>/dev/null || echo 4)
             echo "==================== 工程 $proj 构建完成 ===================="
           done
