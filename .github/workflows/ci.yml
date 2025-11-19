@@ -29,7 +29,7 @@ jobs:
       - name: 检出项目源代码
         uses: actions/checkout@v4
 
-      # 1. 安装基础依赖（全平台）
+      # 1. 安装基础依赖（修复 macOS 多余 tar 依赖）
       - name: 安装依赖（Ubuntu 24.04）
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -47,7 +47,7 @@ jobs:
       - name: 安装依赖（macOS）
         if: matrix.os == 'macos-latest'
         run: |
-          brew install cmake ninja python3 wget tar pkg-config
+          brew install cmake ninja python3 wget pkg-config  # 移除多余的 tar
           brew cleanup
 
       - name: 安装依赖（Windows）
@@ -57,12 +57,11 @@ jobs:
           echo "C:\Program Files\7-Zip" >> $env:GITHUB_PATH
           echo "CMAKE_PREFIX_PATH=C:\Program Files\CMake\bin" >> $env:GITHUB_ENV
 
-      # 2. 下载 Qt 6.9.2 核心源码（仅编译 qtbase 模块）
+      # 2. 下载 Qt 6.9.2 核心源码
       - name: 下载 Qt 源码（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
           wget -c --tries=5 ${{ matrix.qt_url }} -O ${{ matrix.qt_file }} --timeout=1200
-          # 验证文件大小（避免下载不完整）
           FILE_SIZE=$(du -sb ${{ matrix.qt_file }} | awk '{print $1}')
           if [ $FILE_SIZE -lt 1000000000 ]; then
             echo "Qt 源码下载不完整！" && exit 1
@@ -80,17 +79,15 @@ jobs:
             throw "Qt 源码下载不完整！"
           }
 
-      # 3. 解压源码（仅保留 qtbase 模块，大幅减少编译量）
+      # 3. 解压源码（仅保留 qtbase 模块）
       - name: 解压并提取 qtbase（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
-          # 解压全量源码
           if [[ ${{ matrix.qt_file }} == *.tar.xz ]]; then
             tar -xf ${{ matrix.qt_file }}
           else
             unzip ${{ matrix.qt_file }}
           fi
-          # 进入 qtbase 目录（仅编译核心模块）
           cd qt-everywhere-src-6.9.2/qtbase
           echo "QT_BASE_DIR=$(pwd)" >> $GITHUB_ENV
           echo "QT_INSTALL_DIR=${{ github.workspace }}/qt-6.9.2-install" >> $GITHUB_ENV
@@ -104,7 +101,7 @@ jobs:
           echo "QT_BASE_DIR=$qtBaseDir" >> $env:GITHUB_ENV
           echo "QT_INSTALL_DIR=${{ github.workspace }}\qt-6.9.2-install" >> $env:GITHUB_ENV
 
-      # 4. 编译 qtbase（仅核心模块：Core/Gui/Widgets）
+      # 4. 编译 qtbase（仅核心模块）
       - name: 编译 qtbase（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
@@ -169,7 +166,6 @@ jobs:
             mkdir -p build/$proj-build
             preset=${{ matrix.os == 'macos-latest' && 'macos-release' || (matrix.os == 'windows-latest' && 'win-release' || 'linux-release') }}
             cmake --preset=$preset -S $proj -B build/$proj-build
-            # 并行编译
             if [[ ${{ matrix.os }} == "windows-latest" ]]; then
               cmake --build build/$proj-build --config Release --parallel (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors
             else
