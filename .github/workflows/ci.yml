@@ -29,7 +29,7 @@ jobs:
       - name: 检出项目源代码
         uses: actions/checkout@v4
 
-      # 1. 安装基础依赖（修复 macOS 多余 tar 依赖）
+      # 1. 安装基础依赖
       - name: 安装依赖（Ubuntu 24.04）
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -47,7 +47,7 @@ jobs:
       - name: 安装依赖（macOS）
         if: matrix.os == 'macos-latest'
         run: |
-          brew install cmake ninja python3 wget pkg-config  # 移除多余的 tar
+          brew install cmake ninja python3 wget pkg-config
           brew cleanup
 
       - name: 安装依赖（Windows）
@@ -142,18 +142,22 @@ jobs:
           echo "Qt6_DIR=$env:QT_INSTALL_DIR\lib\cmake\Qt6" >> $env:GITHUB_ENV
           echo "$env:QT_INSTALL_DIR\bin" >> $env:GITHUB_PATH
 
-      # 6. 自动识别 dayN 工程
+      # 6. 自动识别 dayN 工程（核心修复：去除换行符，用空格拼接）
       - name: 自动识别 dayN 工程
         id: find_projects
         shell: bash
         run: |
           if [[ ${{ matrix.os }} == "windows-latest" ]]; then
-            PROJECTS=$(powershell -Command "(Get-ChildItem -Directory -Filter 'day[0-9]*' | Sort-Object { [int]($_.Name -replace 'day', '') }).Name -join ' '")
+            # Windows 平台：用空格拼接，去除换行
+            PROJECTS=$(powershell -Command "(Get-ChildItem -Directory -Filter 'day[0-9]*' | Sort-Object { [int]($_.Name -replace 'day', '') }).Name -join ' ' | Out-String -NoNewline")
           else
-            PROJECTS=$(find . -maxdepth 1 -type d -name "day[0-9]*" | sed 's|^\./||' | sort -V)
+            # Linux/macOS 平台：用 tr 去除换行，用空格拼接
+            PROJECTS=$(find . -maxdepth 1 -type d -name "day[0-9]*" | sed 's|^\./||' | sort -V | tr '\n' ' ' | sed 's/ $//')
           fi
-          echo "PROJECTS=$PROJECTS" >> $GITHUB_ENV
+          # 输出识别结果（无换行）
           echo "识别到的工程：$PROJECTS"
+          # 设置环境变量（确保无换行）
+          echo "PROJECTS=$PROJECTS" >> $GITHUB_ENV
 
       # 7. 批量构建 dayN 工程
       - name: 批量构建 dayN 工程
@@ -166,6 +170,7 @@ jobs:
             mkdir -p build/$proj-build
             preset=${{ matrix.os == 'macos-latest' && 'macos-release' || (matrix.os == 'windows-latest' && 'win-release' || 'linux-release') }}
             cmake --preset=$preset -S $proj -B build/$proj-build
+            # 并行编译
             if [[ ${{ matrix.os }} == "windows-latest" ]]; then
               cmake --build build/$proj-build --config Release --parallel (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors
             else
