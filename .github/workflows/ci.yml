@@ -1,95 +1,40 @@
-name: Qt 6.9.2 编译 CI
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
+name: Qt Build CI
+on: [push, pull_request]
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: 1. 检出代码
+        uses: actions/checkout@v4
 
-      # 安装依赖
-      - name: 安装依赖（Ubuntu）
-        if: matrix.os == 'ubuntu-latest'
+      - name: 2. 安装基础依赖
         run: |
-          sudo apt-get update && sudo apt-get install -y build-essential cmake ninja-build python3 libgl1-mesa-dev zlib1g-dev
-          sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build python3 wget zlib1g-dev libgl1-mesa-dev
 
-      - name: 安装依赖（macOS）
-        if: matrix.os == 'macos-latest'
-        run: brew install cmake ninja python3 pkg-config && brew cleanup
+      - name: 3. 下载 Qt 6.9.2 源码
+        run: wget -c https://download.qt.io/archive/qt/6.9/6.9.2/single/qt-everywhere-src-6.9.2.tar.xz -O qt.tar.xz --timeout=600
 
-      - name: 安装依赖（Windows）
-        if: matrix.os == 'windows-latest'
-        run: choco install cmake ninja python3 7zip -y && echo "C:\Program Files\7-Zip" >> $env:GITHUB_PATH
+      - name: 4. 解压源码
+        run: tar -xf qt.tar.xz && cd qt-everywhere-src-6.9.2 && echo "QT_DIR=$(pwd)" >> $GITHUB_ENV
 
-      # 下载 Qt 源码
-      - name: 下载 Qt 6.9.2（Linux/macOS）
-        if: matrix.os != 'windows-latest'
-        run: wget -c --tries=3 https://download.qt.io/archive/qt/6.9/6.9.2/single/qt-everywhere-src-6.9.2.tar.xz -O qt-src.tar.xz --timeout=600
-
-      - name: 下载 Qt 6.9.2（Windows）
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: Invoke-WebRequest -Uri https://download.qt.io/archive/qt/6.9/6.9.2/single/qt-everywhere-src-6.9.2.zip -OutFile qt-src.zip -UseBasicParsing
-
-      # 解压源码
-      - name: 解压（Linux/macOS）
-        if: matrix.os != 'windows-latest'
-        run: tar -xf qt-src.tar.xz && cd qt-everywhere-src-6.9.2 && echo "QT_DIR=$(pwd)" >> $GITHUB_ENV
-
-      - name: 解压（Windows）
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: 7z x qt-src.zip -aoa -bd && cd qt-everywhere-src-6.9.2 && echo "QT_DIR=$(Get-Location | Select-Object -ExpandProperty Path)" >> $env:GITHUB_ENV
-
-      # 配置 Qt 编译（只保留核心模块）
-      - name: 配置 Qt（Linux/macOS）
-        if: matrix.os != 'windows-latest'
+      - name: 5. 配置 Qt 编译
         run: |
           cd ${{ env.QT_DIR }}
           ./configure -prefix $GITHUB_WORKSPACE/qt-install -release -opensource -confirm-license -nomake examples -nomake tests -skip qtdeclarative -skip qtwebengine -- -GNinja
 
-      - name: 配置 Qt（Windows）
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          cd $env:QT_DIR
-          .\configure.bat -prefix "$GITHUB_WORKSPACE\qt-install" -release -opensource -confirm-license -nomake examples -nomake tests -skip qtdeclarative -skip qtwebengine -- -GNinja
-
-      # 编译安装 Qt
-      - name: 编译安装
+      - name: 6. 编译安装 Qt
         run: |
           cd ${{ env.QT_DIR }}
           cmake --build . --parallel 2
           cmake --install .
 
-      # 配置项目环境
-      - name: 配置环境（Linux/macOS）
-        if: matrix.os != 'windows-latest'
-        run: echo "Qt6_DIR=$GITHUB_WORKSPACE/qt-install/lib/cmake/Qt6" >> $GITHUB_ENV
-
-      - name: 配置环境（Windows）
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: echo "Qt6_DIR=$GITHUB_WORKSPACE\qt-install\lib\cmake\Qt6" >> $env:GITHUB_ENV
-
-      # 构建 dayN 工程
-      - name: 构建项目
-        shell: bash
+      - name: 7. 构建 dayN 工程
         run: |
-          PROJECTS=$(find . -maxdepth 1 -type d -name "day[0-9]*" | sort -V)
-          if [ -z "$PROJECTS" ]; then echo "无 dayN 工程，跳过"; exit 0; fi
-          for proj in $PROJECTS; do
+          export Qt6_DIR=$GITHUB_WORKSPACE/qt-install/lib/cmake/Qt6
+          for proj in $(find . -maxdepth 1 -type d -name "day[0-9]*"); do
             echo "构建 $proj"
             mkdir -p $proj/build
             cmake -S $proj -B $proj/build -DCMAKE_PREFIX_PATH=$Qt6_DIR
-            cmake --build $proj/build --config Release --parallel 2
+            cmake --build $proj/build --parallel 2
           done
