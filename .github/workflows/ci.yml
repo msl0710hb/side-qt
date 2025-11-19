@@ -1,4 +1,4 @@
-name: Qt 6.9.2 源码编译 CI（全平台兼容+官方链接）
+name: Qt 6.9.2 源码编译 CI（全平台终极兼容）
 on:
   push:
     branches: [ main ]
@@ -19,7 +19,7 @@ jobs:
           - os: windows-latest
             qt_src: qt-everywhere-src-6.9.2.zip
             official_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/
-            extract_cmd: unzip -q
+            extract_cmd: 7z x -aoa -bd  # Windows 用 7-Zip 解压命令
             qt_install_dir: ${{ github.workspace }}\qt-6.9.2-install
           - os: ubuntu-latest
             qt_src: qt-everywhere-src-6.9.2.tar.xz
@@ -56,10 +56,11 @@ jobs:
       - name: 安装依赖（Windows）
         if: matrix.os == 'windows-latest'
         run: |
-          choco install cmake ninja python3 -y
+          choco install cmake ninja python3 7zip -y  # 确保 7-Zip 安装
           echo "CMAKE_PREFIX_PATH=C:\Program Files\CMake\bin" >> $env:GITHUB_ENV
+          echo "C:\Program Files\7-Zip" >> $env:GITHUB_PATH  # 添加 7-Zip 到环境变量
 
-      # 2. 下载 Qt 6.9.2 源码（核心修复：Windows 用 Invoke-WebRequest）
+      # 2. 下载 Qt 6.9.2 源码
       - name: 下载 Qt 6.9.2 源码（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
@@ -69,7 +70,6 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          # Windows 用 Invoke-WebRequest 替代 wget，支持断点续传
           $outputFile = "${{ matrix.qt_src }}"
           $url = "${{ matrix.official_url }}${{ matrix.qt_src }}"
           $retryCount = 3
@@ -90,7 +90,6 @@ jobs:
             }
           }
 
-          # 验证文件大小（至少 1G）
           $fileSize = (Get-Item $outputFile).Length
           if ($fileSize -lt 1000000000) {
             throw "Qt 源码包下载不完整！实际大小：$fileSize 字节（需至少 1G）"
@@ -120,11 +119,12 @@ jobs:
         run: |
           $extractCmd = "${{ matrix.extract_cmd }}"
           $qtSrc = "${{ matrix.qt_src }}"
+          # 执行 7-Zip 解压（-aoa 覆盖已存在文件，-bd 不显示进度条）
           & $extractCmd $qtSrc
           cd qt-everywhere-src-6.9.2
           echo "QT_SRC_DIR=$(Get-Location | Select-Object -ExpandProperty Path)" >> $env:GITHUB_ENV
 
-      # 5. 配置 Qt 编译（移除 -ninja，用 -- -GNinja）
+      # 5. 配置 Qt 编译
       - name: 配置 Qt 编译（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
