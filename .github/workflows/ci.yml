@@ -1,4 +1,4 @@
-name: Qt 6.9.2 源码编译 CI（官方正版链接）
+name: Qt 6.9.2 源码编译 CI（官方正版链接+多平台兼容）
 on:
   push:
     branches: [ main ]
@@ -11,7 +11,6 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
         include:
-          # 三平台官方正版链接（补充 single/ 层级，100% 无 404）
           - os: macos-latest
             qt_src: qt-everywhere-src-6.9.2.tar.xz
             official_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/
@@ -60,27 +59,35 @@ jobs:
           choco install cmake ninja python3 -y
           echo "CMAKE_PREFIX_PATH=C:\Program Files\CMake\bin" >> $env:GITHUB_ENV
 
-      # 2. 从 Qt 官方正版链接下载源码（补充 single/ 层级，解决 404）
+      # 2. 从 Qt 官方正版链接下载源码（修复 404）
       - name: 下载 Qt 6.9.2 源码（官方正版）
         run: |
           wget -c --tries=3 ${{ matrix.official_url }}${{ matrix.qt_src }} -O ${{ matrix.qt_src }} --timeout=600
-          # 验证文件完整性（确保下载完整）
-          if [ "${{ matrix.os }}" != "windows-latest" ]; then
-            FILE_SIZE=$(stat -c%s ${{ matrix.qt_src }} 2>/dev/null || stat -f%s ${{ matrix.qt_src }})
-            if [ $FILE_SIZE -lt 1000000000 ]; then  # 小于 1G 视为下载失败
-              echo "Qt 源码包下载不完整！"
-              exit 1
-            fi
+
+      # 3. 跨平台验证文件完整性（修复 stat 命令格式问题）
+      - name: 验证源码包完整性
+        if: matrix.os != 'windows-latest'
+        run: |
+          # 适配 Linux/macOS 不同的 stat 命令格式
+          if [ "${{ matrix.os }}" == "linux-latest" ]; then
+            FILE_SIZE=$(stat -c%s ${{ matrix.qt_src }})
+          else
+            FILE_SIZE=$(stat -f%s ${{ matrix.qt_src }})
+          fi
+          # Qt 6.9.2 全量源码包约 1.1G，小于 1G 视为不完整
+          if [ $FILE_SIZE -lt 1000000000 ]; then
+            echo "Qt 源码包下载不完整！实际大小：$FILE_SIZE 字节"
+            exit 1
           fi
 
-      # 3. 解压源码包
+      # 4. 解压源码包
       - name: 解压 Qt 源码
         run: |
           ${{ matrix.extract_cmd }} ${{ matrix.qt_src }}
           cd qt-everywhere-src-6.9.2
           echo "QT_SRC_DIR=$(pwd)" >> $GITHUB_ENV
 
-      # 4. 配置 Qt 编译（跳过冗余模块，加快速度）
+      # 5. 配置 Qt 编译（跳过冗余模块）
       - name: 配置 Qt 编译（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
@@ -89,7 +96,7 @@ jobs:
             -prefix ${{ matrix.qt_install_dir }} \
             -release -opensource -confirm-license \
             -nomake examples -nomake tests -ninja \
-            -skip qtwebengine  # 跳过 webengine，减少编译时间和依赖
+            -skip qtwebengine
 
       - name: 配置 Qt 编译（Windows）
         if: matrix.os == 'windows-latest'
@@ -102,19 +109,19 @@ jobs:
             -nomake examples -nomake tests -ninja `
             -skip qtwebengine
 
-      # 5. 并行编译 Qt 6.9.2
+      # 6. 并行编译 Qt 6.9.2
       - name: 编译 Qt 6.9.2
         run: |
           cd ${{ env.QT_SRC_DIR }}
-          cmake --build . --parallel $(nproc 2>/dev/null || echo 4)  # 自动适配 CPU 核心数
+          cmake --build . --parallel $(nproc 2>/dev/null || echo 4)
 
-      # 6. 安装 Qt 到指定目录
+      # 7. 安装 Qt 到指定目录
       - name: 安装 Qt 6.9.2
         run: |
           cd ${{ env.QT_SRC_DIR }}
           cmake --install .
 
-      # 7. 配置 Qt 环境变量（供项目构建使用）
+      # 8. 配置 Qt 环境变量
       - name: 配置 Qt 环境
         run: |
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
@@ -124,10 +131,9 @@ jobs:
             echo "Qt6_DIR=${{ matrix.qt_install_dir }}/lib/cmake/Qt6" >> $GITHUB_ENV
             echo "${{ matrix.qt_install_dir }}/bin" >> $GITHUB_PATH
           fi
-          # 验证 Qt 版本（确保安装成功）
           qmake --version || { echo "Qt 环境配置失败！"; exit 1; }
 
-      # 8. 自动识别所有 dayN 工程（无需手动维护）
+      # 9. 自动识别所有 dayN 工程
       - name: 自动识别 dayN 工程
         id: find_projects
         shell: bash
@@ -136,7 +142,7 @@ jobs:
           echo "PROJECTS=($PROJECTS)" >> $GITHUB_ENV
           echo "识别到的工程：$PROJECTS"
 
-      # 9. 批量构建所有 dayN 工程
+      # 10. 批量构建所有 dayN 工程
       - name: 批量构建所有工程
         shell: bash
         run: |
@@ -158,7 +164,7 @@ jobs:
             echo "==================== 工程 $proj 构建完成 ===================="
           done
 
-      # 10. 运行所有工程（验证可用性）
+      # 11. 运行所有工程（验证可用性）
       - name: 运行工程（Linux/macOS）
         if: matrix.os != 'windows-latest'
         shell: bash
@@ -167,7 +173,7 @@ jobs:
           if [ ${#PROJECTS[@]} -eq 0 ]; then exit 0; fi
           for proj in "${PROJECTS[@]}"; do
             echo -e "\n==================== 运行工程：$proj ===================="
-            EXEC_PATH="./build/$proj-build/Release/${proj^}"  # day0 -> Day0
+            EXEC_PATH="./build/$proj-build/Release/${proj^}"
             if [ -f "$EXEC_PATH" ]; then
               chmod +x $EXEC_PATH
               $EXEC_PATH || echo "工程 $proj 运行失败（非致命错误）"
@@ -185,7 +191,7 @@ jobs:
           if ($PROJECTS.Count -eq 0) { exit 0; }
           foreach ($proj in $PROJECTS) {
             Write-Host "`n==================== 运行工程：$proj ===================="
-            $EXEC_PATH = ".\build\$proj-build\Release\$($proj.ToUpper()).exe"  # day0 -> DAY0.exe
+            $EXEC_PATH = ".\build\$proj-build\Release\$($proj.ToUpper()).exe"
             if (Test-Path $EXEC_PATH) {
               & $EXEC_PATH
               if ($LASTEXITCODE -ne 0) {
