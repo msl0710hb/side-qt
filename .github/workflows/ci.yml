@@ -12,7 +12,6 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
         include:
-          #  Qt 6.2.4 LTS（稳定性最高，适配所有平台）
           - os: macos-latest
             qt_version: '6.2.4'
             qt_arch: 'clang_64'
@@ -28,16 +27,14 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # 关键修改：改用稳定的第三方 Qt 安装插件（无仓库缺失问题）
+      # 修正插件名称（首字母 P 大写，与仓库名一致）
       - name: Install Qt ${{ matrix.qt_version }}
         uses: seonggyuPark/qt-action@v1.2.0
         with:
           version: ${{ matrix.qt_version }}
           arch: ${{ matrix.qt_arch }}
           cache: true
-          # 插件自动处理 Qt 下载和环境变量配置，无需额外参数
 
-      # 配置 CMake
       - name: Configure CMake
         shell: bash
         run: |
@@ -48,12 +45,10 @@ jobs:
           esac
           cmake --preset=$PRESET
 
-      # 构建项目
       - name: Build project
         shell: bash
         run: cmake --build build --config Release --parallel 4
 
-      # Linux 运行依赖
       - name: Install runtime dependencies (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -61,7 +56,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libxcb-xinerama0 libxcb-cursor0 libgl1-mesa-glx libxcb-icccm4 libxcb-image0
 
-      # 运行 - macOS
       - name: "Run application (macOS)"
         if: runner.os == 'macOS'
         shell: bash
@@ -70,7 +64,6 @@ jobs:
           chmod +x $EXEC_PATH
           $EXEC_PATH
 
-      # 运行 - Linux
       - name: "Run application (Linux)"
         if: runner.os == 'Linux'
         shell: bash
@@ -79,7 +72,6 @@ jobs:
           chmod +x $EXEC_PATH
           $EXEC_PATH
 
-      # 运行 - Windows
       - name: "Run application (Windows)"
         if: runner.os == 'Windows'
         shell: pwsh
