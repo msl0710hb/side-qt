@@ -1,16 +1,4 @@
-name: Qt 6.9.2 核心模块编译 CI（磁盘优化+全平台兼容）
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
 
-jobs:
-  build-and-run:
-    strategy:
-      matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
-        include:
           - os: macos-latest
             qt_src: qt-everywhere-src-6.9.2.tar.xz
             official_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/
