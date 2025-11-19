@@ -1,4 +1,4 @@
-name: Qt 6.9.2 源码编译 CI（全平台终极兼容）
+name: Qt 6.9.2 核心模块编译 CI（磁盘优化+全平台兼容）
 on:
   push:
     branches: [ main ]
@@ -41,23 +41,24 @@ jobs:
             libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-dev \
             libxcb-xinerama0-dev libxcb-icccm4-dev libxcb-keysyms1-dev \
             libxcb-image0-dev libxcb-util0-dev libxcb-xinput-dev \
-            libxcb-xfixes0-dev libxcb-xkb-dev flex bison gperf \
-            libicu-dev libxslt-dev ruby libssl-dev libfontconfig1-dev \
-            libfreetype6-dev libx11-dev libxext-dev libxfixes-dev \
-            libxi-dev libxrender-dev libxcb1-dev libx11-xcb-dev \
-            libxcb-glx0-dev zlib1g-dev
+            libxcb-xfixes0-dev libxcb-xkb-dev zlib1g-dev  # 只保留核心依赖
+          # 清理系统缓存，释放空间
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
       - name: 安装依赖（macOS）
         if: matrix.os == 'macos-latest'
         run: |
           brew install cmake ninja python3 pkg-config
+          # 清理 brew 缓存
+          brew cleanup
 
       - name: 安装依赖（Windows）
         if: matrix.os == 'windows-latest'
         run: |
           choco install cmake ninja python3 7zip -y
           echo "CMAKE_PREFIX_PATH=C:\Program Files\CMake\bin" >> $env:GITHUB_ENV
-          echo "C:\Program Files\7-Zip" >> $env:GITHUB_PATH  # 确保 7z 可执行
+          echo "C:\Program Files\7-Zip" >> $env:GITHUB_PATH
 
       # 2. 下载 Qt 6.9.2 源码
       - name: 下载 Qt 6.9.2 源码（Linux/macOS）
@@ -77,7 +78,6 @@ jobs:
 
           for ($i = 1; $i -le $retryCount; $i++) {
             try {
-              Write-Host "第 $i 次下载：$url"
               Invoke-WebRequest -Uri $url -OutFile $outputFile -UseBasicParsing -MaximumRetryCount ($retryCount - 1) -RetryIntervalSec $retryDelay
               $success = $true
               break
@@ -104,7 +104,7 @@ jobs:
             exit 1
           fi
 
-      # 4. 解压源码包（核心修复：Windows 拆分 7z 命令与参数）
+      # 4. 解压源码包
       - name: 解压 Qt 源码（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
@@ -117,12 +117,11 @@ jobs:
         shell: pwsh
         run: |
           $qtSrc = "${{ matrix.qt_src }}"
-          # 拆分命令与参数，直接执行 7z（避免字符串解析错误）
           7z x $qtSrc -aoa -bd
           cd qt-everywhere-src-6.9.2
           echo "QT_SRC_DIR=$(Get-Location | Select-Object -ExpandProperty Path)" >> $env:GITHUB_ENV
 
-      # 5. 配置 Qt 编译
+      # 5. 配置 Qt 编译（核心优化：只编译核心模块，跳过所有冗余模块）
       - name: 配置 Qt 编译（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
@@ -130,8 +129,19 @@ jobs:
           ./configure \
             -prefix ${{ matrix.qt_install_dir }} \
             -release -opensource -confirm-license \
-            -nomake examples -nomake tests \
-            -skip qtwebengine \
+            -nomake examples -nomake tests -nomake tools \
+            # 只保留核心模块（根据你的项目需求调整，默认包含基础 GUI/核心功能）
+            -skip qt3d -skip qtactiveqt -skip qtcharts -skip qtcoap \
+            -skip qtconnectivity -skip qtdatavis3d -skip qtdeclarative \
+            -skip qtdoc -skip qtgrpc -skip qtimageformats -skip qtlocation \
+            -skip qtmultimedia -skip qtnetworkauth -skip qtopcua \
+            -skip qtpositioning -skip qtprintsupport -skip qtquick3d \
+            -skip qtquicktimeline -skip qtremoteobjects -skip qtscxml \
+            -skip qtsensors -skip qtserialbus -skip qtserialport -skip qtspeech \
+            -skip qtstyleplugins -skip qtsvg -skip qttools -skip qttranslations \
+            -skip qtvirtualkeyboard -skip qtwayland -skip qtwebchannel \
+            -skip qtwebengine -skip qtwebsockets -skip qtwebview -skip qtwinextras \
+            -skip qtx11extras -skip qtxmlpatterns \
             -- -GNinja
 
       - name: 配置 Qt 编译（Windows）
@@ -142,23 +152,35 @@ jobs:
           .\configure.bat `
             -prefix "${{ matrix.qt_install_dir }}" `
             -release -opensource -confirm-license `
-            -nomake examples -nomake tests `
-            -skip qtwebengine `
+            -nomake examples -nomake tests -nomake tools `
+            -skip qt3d -skip qtactiveqt -skip qtcharts -skip qtcoap `
+            -skip qtconnectivity -skip qtdatavis3d -skip qtdeclarative `
+            -skip qtdoc -skip qtgrpc -skip qtimageformats -skip qtlocation `
+            -skip qtmultimedia -skip qtnetworkauth -skip qtopcua `
+            -skip qtpositioning -skip qtprintsupport -skip qtquick3d `
+            -skip qtquicktimeline -skip qtremoteobjects -skip qtscxml `
+            -skip qtsensors -skip qtserialbus -skip qtserialport -skip qtspeech `
+            -skip qtstyleplugins -skip qtsvg -skip qttools -skip qttranslations `
+            -skip qtvirtualkeyboard -skip qtwayland -skip qtwebchannel `
+            -skip qtwebengine -skip qtwebsockets -skip qtwebview -skip qtwinextras `
+            -skip qtx11extras -skip qtxmlpatterns `
             -- -GNinja
 
-      # 6. 并行编译 Qt 6.9.2
+      # 6. 并行编译 Qt 6.9.2（优化编译参数）
       - name: 编译 Qt 6.9.2（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
           cd ${{ env.QT_SRC_DIR }}
-          cmake --build . --parallel $(nproc 2>/dev/null || echo 4)
+          # 限制并行编译线程数，减少磁盘 I/O 压力
+          cmake --build . --parallel $(($(nproc 2>/dev/null || echo 4) / 2))
 
       - name: 编译 Qt 6.9.2（Windows）
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
           cd $env:QT_SRC_DIR
-          cmake --build . --parallel (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors
+          $threadCount = (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors / 2
+          cmake --build . --parallel $threadCount
 
       # 7. 安装 Qt 到指定目录
       - name: 安装 Qt 6.9.2（Linux/macOS）
@@ -227,7 +249,7 @@ jobs:
             echo -e "\n==================== 构建工程：$proj ===================="
             mkdir -p build/$proj-build
             cmake --preset=$PRESET -S $proj -B build/$proj-build
-            cmake --build build/$proj-build --config Release --parallel $(nproc 2>/dev/null || echo 4)
+            cmake --build build/$proj-build --config Release --parallel $(($(nproc 2>/dev/null || echo 4) / 2))
             echo "==================== 工程 $proj 构建完成 ===================="
           done
 
@@ -246,7 +268,8 @@ jobs:
             Write-Host "`n==================== 构建工程：$proj ===================="
             mkdir -p build/$proj-build
             cmake --preset=$preset -S $proj -B build/$proj-build
-            cmake --build build/$proj-build --config Release --parallel (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors
+            $threadCount = (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors / 2
+            cmake --build build/$proj-build --config Release --parallel $threadCount
             Write-Host "==================== 工程 $proj 构建完成 ===================="
           }
 
