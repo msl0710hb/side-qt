@@ -2,7 +2,6 @@
   "version": 6,
   "cmakeMinimumRequired": { "major": 3, "minor": 23, "patch": 0 },
   "configurePresets": [
-    // 基础通用配置（所有平台共享）
     {
       "name": "base",
       "hidden": true,
@@ -15,8 +14,6 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },
-
-    // macOS 配置（适配 M 芯片+Intel 双架构）
     {
       "name": "macos-release",
       "displayName": "macOS Release",
@@ -26,14 +23,11 @@
         "CMAKE_PREFIX_PATH": "$env{Qt6_DIR}",
         "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64",
         "CMAKE_OSX_DEPLOYMENT_TARGET": "12.0",
-        // 明确 Qt 模块路径，避免查找失败
         "Qt6Widgets_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Widgets",
         "Qt6Core_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Core",
         "Qt6Gui_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Gui"
       }
     },
-
-    // Windows 配置（MSVC 编译器）
     {
       "name": "win-release",
       "displayName": "Windows Release",
@@ -45,8 +39,6 @@
         "CMAKE_CXX_COMPILER": "cl.exe"
       }
     },
-
-    // Linux 配置（GCC 编译器）
     {
       "name": "linux-release",
       "displayName": "Linux Release",
