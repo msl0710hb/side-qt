@@ -1,4 +1,4 @@
-name: Qt 6.9.2 预编译包 CI（全平台兼容+批量构建）
+name: Qt 6.9.2 预编译包 CI（全平台兼容+零模块冲突）
 on:
   push:
     branches: [ main ]
@@ -26,22 +26,26 @@ jobs:
       - name: 检出项目源代码
         uses: actions/checkout@v4
 
-      # 核心修复：安装 Qt 时指定正确模块（qtbase 包含 Core/Gui/Widgets）
+      # 核心修复：移除 modules 参数，默认安装 qtbase 核心模块（含 Core/Gui/Widgets）
       - name: 安装 Qt 6.9.2（官方预编译包）
         uses: jurplel/install-qt-action@v3
         with:
           version: "6.9.2"
           arch: ${{ matrix.qt_arch }}
-          cache: true
-          modules: "qtbase"  # 关键修复！qtbase 包含核心三模块，无需单独指定
-          set-env: true
+          cache: true  # 缓存加速，避免重复下载
+          set-env: true  # 自动配置 Qt6_DIR 环境变量
+          # 移除 modules 字段，默认安装核心模块，避免命名冲突
 
-      # 补充 Linux 系统依赖
+      # 补充 Linux 系统依赖（图形库+X11 依赖）
       - name: 安装 Linux 基础依赖
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-dev
+          sudo apt-get install -y \
+            libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libxcb-xinerama0-dev libxcb-icccm4-dev libxcb-keysyms1-dev \
+            libxcb-image0-dev libxcb-util0-dev libxcb-xinput-dev \
+            libxcb-xfixes0-dev libxcb-xkb-dev zlib1g-dev
           sudo apt-get clean
 
       # 自动识别 dayN 工程
@@ -66,8 +70,10 @@ jobs:
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 构建工程：$proj ===================="
             mkdir -p build/$proj-build
-            cmake --preset=${{ matrix.os == 'macos-latest' && 'macos-release' || (matrix.os == 'windows-latest' && 'win-release' || 'linux-release') }} \
-                  -S $proj -B build/$proj-build
+            # 适配不同系统的 CMake Preset
+            preset=${{ matrix.os == 'macos-latest' && 'macos-release' || (matrix.os == 'windows-latest' && 'win-release' || 'linux-release') }}
+            cmake --preset=$preset -S $proj -B build/$proj-build
+            # 并行编译（适配系统核心数）
             if [[ ${{ matrix.os }} == "windows-latest" ]]; then
               cmake --build build/$proj-build --config Release --parallel (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors
             else
@@ -84,6 +90,7 @@ jobs:
           IFS=' ' read -r -a projects_arr <<< "$PROJECTS"
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 运行工程：$proj ===================="
+            # 查找 Release 目录下的可执行文件
             if [[ ${{ matrix.os }} == "windows-latest" ]]; then
               EXEC_PATH=$(find build/$proj-build -name "${proj^^}${{ matrix.exec_suffix }}" -type f -path "*/Release/*")
             else
