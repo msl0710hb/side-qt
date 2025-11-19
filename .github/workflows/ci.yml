@@ -12,7 +12,7 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
         include:
-          # Qt 6.2.4 LTS（官方插件适配最完善）
+          #  Qt 6.2.4 LTS（稳定性最高，适配所有平台）
           - os: macos-latest
             qt_version: '6.2.4'
             qt_arch: 'clang_64'
@@ -28,16 +28,16 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # 关键修改：用 Qt 官方插件安装 Qt（替代 aqtinstall）
-      - name: Install Qt ${{ matrix.qt_version }} (Official Plugin)
-        uses: qt/qt-action@v3
+      # 关键修改：改用稳定的第三方 Qt 安装插件（无仓库缺失问题）
+      - name: Install Qt ${{ matrix.qt_version }}
+        uses: seonggyuPark/qt-action@v1.2.0
         with:
           version: ${{ matrix.qt_version }}
           arch: ${{ matrix.qt_arch }}
           cache: true
-          # 官方插件自动处理模块依赖，无需手动指定 qtbase
+          # 插件自动处理 Qt 下载和环境变量配置，无需额外参数
 
-      # 配置 CMake（官方插件会自动设置 Qt6_DIR 环境变量）
+      # 配置 CMake
       - name: Configure CMake
         shell: bash
         run: |
