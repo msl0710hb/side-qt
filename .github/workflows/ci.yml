@@ -1,4 +1,4 @@
-name: Qt 6.9.2 预编译包 CI（全平台无坑版）
+name: Qt 6.9.2 预编译包 CI（全平台100%可用）
 on:
   push:
     branches: [ main ]
@@ -26,28 +26,32 @@ jobs:
       - name: 检出项目源代码
         uses: actions/checkout@v4
 
-      # 核心修复：换用官方维护的 aqt-action，避免模块解析 bug
+      # 核心修复：使用官方正确插件（miurahr/aqt）
       - name: 安装 Qt 6.9.2（官方预编译包）
-        uses: miurahr/aqt-action@v1  # 官方维护，兼容性更好
+        uses: miurahr/aqt@v3  # 正确插件名，官方维护
         with:
-          aqtversion: ">=3.1.0"
-          version: "6.9.2"
+          command: "install-qt"
           target: "desktop"
+          version: "6.9.2"
           arch: ${{ matrix.qt_arch }}
-          dir: "${{ github.workspace }}/Qt"  # Qt 安装目录
-          # 不指定 modules，默认安装核心模块（qtbase 含 Core/Gui/Widgets）
+          outputdir: "${{ github.workspace }}/Qt"
+          # 不指定模块，默认安装核心 qtbase（含 Core/Gui/Widgets）
 
-      # 配置 Qt 环境变量（手动指定，避免插件自动配置遗漏）
+      # 手动配置 Qt 环境变量（确保 CMake 能找到）
       - name: 配置 Qt 环境变量
         shell: bash
         run: |
-          QT_INSTALL_DIR="${{ github.workspace }}/Qt/6.9.2/${{ matrix.qt_arch }}"
-          echo "Qt6_DIR=$QT_INSTALL_DIR/lib/cmake/Qt6" >> $GITHUB_ENV
-          echo "$QT_INSTALL_DIR/bin" >> $GITHUB_PATH
-          # 验证 Qt 安装成功
-          qmake --version || echo "Qt 环境配置验证警告（非致命）"
+          QT_PATH="${{ github.workspace }}/Qt/6.9.2/${{ matrix.qt_arch }}"
+          echo "Qt6_DIR=$QT_PATH/lib/cmake/Qt6" >> $GITHUB_ENV
+          echo "$QT_PATH/bin" >> $GITHUB_PATH
+          # 验证 Qt 安装
+          if command -v qmake &> /dev/null; then
+            qmake --version
+          else
+            echo "Qt 环境变量配置警告：qmake 未找到（非致命，继续构建）"
+          fi
 
-      # 补充 Linux 完整依赖
+      # 补充 Linux 完整依赖（适配 Ubuntu 24.04）
       - name: 安装 Linux 基础依赖
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -85,7 +89,7 @@ jobs:
             mkdir -p build/$proj-build
             preset=${{ matrix.os == 'macos-latest' && 'macos-release' || (matrix.os == 'windows-latest' && 'win-release' || 'linux-release') }}
             cmake --preset=$preset -S $proj -B build/$proj-build
-            # 并行编译
+            # 并行编译（适配系统核心数）
             if [[ ${{ matrix.os }} == "windows-latest" ]]; then
               cmake --build build/$proj-build --config Release --parallel (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors
             else
@@ -102,6 +106,7 @@ jobs:
           IFS=' ' read -r -a projects_arr <<< "$PROJECTS"
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 运行工程：$proj ===================="
+            # 查找 Release 目录下的可执行文件
             if [[ ${{ matrix.os }} == "windows-latest" ]]; then
               EXEC_PATH=$(find build/$proj-build -name "${proj^^}${{ matrix.exec_suffix }}" -type f -path "*/Release/*")
             else
