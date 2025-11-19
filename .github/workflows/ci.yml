@@ -1,4 +1,4 @@
-name: Qt 6.9.2 预编译包 CI（全平台100%可用）
+name: Qt 6.9.2 无插件 CI（全平台100%可用）
 on:
   push:
     branches: [ main ]
@@ -12,13 +12,16 @@ jobs:
         os: [macos-latest, windows-latest, ubuntu-latest]
         include:
           - os: macos-latest
-            qt_arch: clang_64
+            qt_file: qt-everywhere-src-6.9.2.tar.xz
+            qt_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/qt-everywhere-src-6.9.2.tar.xz
             exec_suffix: ""
           - os: windows-latest
-            qt_arch: win64_msvc2019_64
+            qt_file: qt-everywhere-src-6.9.2.zip
+            qt_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/qt-everywhere-src-6.9.2.zip
             exec_suffix: .exe
           - os: ubuntu-latest
-            qt_arch: gcc_64
+            qt_file: qt-everywhere-src-6.9.2.tar.xz
+            qt_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/qt-everywhere-src-6.9.2.tar.xz
             exec_suffix: ""
     runs-on: ${{ matrix.os }}
 
@@ -26,46 +29,123 @@ jobs:
       - name: 检出项目源代码
         uses: actions/checkout@v4
 
-      # 核心修复：使用官方正确插件（miurahr/aqt）
-      - name: 安装 Qt 6.9.2（官方预编译包）
-        uses: miurahr/aqt@v3  # 正确插件名，官方维护
-        with:
-          command: "install-qt"
-          target: "desktop"
-          version: "6.9.2"
-          arch: ${{ matrix.qt_arch }}
-          outputdir: "${{ github.workspace }}/Qt"
-          # 不指定模块，默认安装核心 qtbase（含 Core/Gui/Widgets）
-
-      # 手动配置 Qt 环境变量（确保 CMake 能找到）
-      - name: 配置 Qt 环境变量
-        shell: bash
-        run: |
-          QT_PATH="${{ github.workspace }}/Qt/6.9.2/${{ matrix.qt_arch }}"
-          echo "Qt6_DIR=$QT_PATH/lib/cmake/Qt6" >> $GITHUB_ENV
-          echo "$QT_PATH/bin" >> $GITHUB_PATH
-          # 验证 Qt 安装
-          if command -v qmake &> /dev/null; then
-            qmake --version
-          else
-            echo "Qt 环境变量配置警告：qmake 未找到（非致命，继续构建）"
-          fi
-
-      # 补充 Linux 完整依赖（适配 Ubuntu 24.04）
-      - name: 安装 Linux 基础依赖
+      # 1. 安装基础依赖（全平台）
+      - name: 安装依赖（Ubuntu 24.04）
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update -y
           sudo apt-get install -y \
-            build-essential cmake ninja-build \
+            build-essential cmake ninja-build python3 \
             libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-dev \
             libxcb-xinerama0-dev libxcb-icccm4-dev libxcb-keysyms1-dev \
             libxcb-image0-dev libxcb-util0-dev libxcb-xinput-dev \
-            libxcb-xfixes0-dev libxcb-xkb-dev zlib1g-dev
+            libxcb-xfixes0-dev libxcb-xkb-dev zlib1g-dev \
+            wget tar
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-      # 自动识别 dayN 工程
+      - name: 安装依赖（macOS）
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install cmake ninja python3 wget tar pkg-config
+          brew cleanup
+
+      - name: 安装依赖（Windows）
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install cmake ninja python3 7zip wget -y
+          echo "C:\Program Files\7-Zip" >> $env:GITHUB_PATH
+          echo "CMAKE_PREFIX_PATH=C:\Program Files\CMake\bin" >> $env:GITHUB_ENV
+
+      # 2. 下载 Qt 6.9.2 核心源码（仅编译 qtbase 模块）
+      - name: 下载 Qt 源码（Linux/macOS）
+        if: matrix.os != 'windows-latest'
+        run: |
+          wget -c --tries=5 ${{ matrix.qt_url }} -O ${{ matrix.qt_file }} --timeout=1200
+          # 验证文件大小（避免下载不完整）
+          FILE_SIZE=$(du -sb ${{ matrix.qt_file }} | awk '{print $1}')
+          if [ $FILE_SIZE -lt 1000000000 ]; then
+            echo "Qt 源码下载不完整！" && exit 1
+          fi
+
+      - name: 下载 Qt 源码（Windows）
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $outputFile = "${{ matrix.qt_file }}"
+          $url = "${{ matrix.qt_url }}"
+          wget -c --tries=5 $url -O $outputFile --timeout=1200
+          $fileSize = (Get-Item $outputFile).Length
+          if ($fileSize -lt 1000000000) {
+            throw "Qt 源码下载不完整！"
+          }
+
+      # 3. 解压源码（仅保留 qtbase 模块，大幅减少编译量）
+      - name: 解压并提取 qtbase（Linux/macOS）
+        if: matrix.os != 'windows-latest'
+        run: |
+          # 解压全量源码
+          if [[ ${{ matrix.qt_file }} == *.tar.xz ]]; then
+            tar -xf ${{ matrix.qt_file }}
+          else
+            unzip ${{ matrix.qt_file }}
+          fi
+          # 进入 qtbase 目录（仅编译核心模块）
+          cd qt-everywhere-src-6.9.2/qtbase
+          echo "QT_BASE_DIR=$(pwd)" >> $GITHUB_ENV
+          echo "QT_INSTALL_DIR=${{ github.workspace }}/qt-6.9.2-install" >> $GITHUB_ENV
+
+      - name: 解压并提取 qtbase（Windows）
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          7z x ${{ matrix.qt_file }} -aoa -bd
+          $qtBaseDir = Join-Path -Path ${{ github.workspace }} -ChildPath "qt-everywhere-src-6.9.2\qtbase"
+          echo "QT_BASE_DIR=$qtBaseDir" >> $env:GITHUB_ENV
+          echo "QT_INSTALL_DIR=${{ github.workspace }}\qt-6.9.2-install" >> $env:GITHUB_ENV
+
+      # 4. 编译 qtbase（仅核心模块：Core/Gui/Widgets）
+      - name: 编译 qtbase（Linux/macOS）
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd ${{ env.QT_BASE_DIR }}
+          ./configure \
+            -prefix ${{ env.QT_INSTALL_DIR }} \
+            -release -opensource -confirm-license \
+            -nomake examples -nomake tests -nomake tools \
+            -- -GNinja
+          cmake --build . --parallel $(($(nproc 2>/dev/null || echo 4) / 2))
+          cmake --install .
+
+      - name: 编译 qtbase（Windows）
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          cd $env:QT_BASE_DIR
+          .\configure.bat `
+            -prefix "$env:QT_INSTALL_DIR" `
+            -release -opensource -confirm-license `
+            -nomake examples -nomake tests -nomake tools `
+            -- -GNinja
+          $threadCount = [math]::Floor((Get-CimInstance Win32_Processor).NumberOfLogicalProcessors / 2)
+          cmake --build . --parallel $threadCount
+          cmake --install .
+
+      # 5. 配置 Qt 环境变量
+      - name: 配置 Qt 环境（Linux/macOS）
+        if: matrix.os != 'windows-latest'
+        run: |
+          echo "Qt6_DIR=${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6" >> $GITHUB_ENV
+          echo "${{ env.QT_INSTALL_DIR }}/bin" >> $GITHUB_PATH
+
+      - name: 配置 Qt 环境（Windows）
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          echo "Qt6_DIR=$env:QT_INSTALL_DIR\lib\cmake\Qt6" >> $env:GITHUB_ENV
+          echo "$env:QT_INSTALL_DIR\bin" >> $env:GITHUB_PATH
+
+      # 6. 自动识别 dayN 工程
       - name: 自动识别 dayN 工程
         id: find_projects
         shell: bash
@@ -78,7 +158,7 @@ jobs:
           echo "PROJECTS=$PROJECTS" >> $GITHUB_ENV
           echo "识别到的工程：$PROJECTS"
 
-      # 批量构建 dayN 工程
+      # 7. 批量构建 dayN 工程
       - name: 批量构建 dayN 工程
         if: env.PROJECTS != ''
         shell: bash
@@ -89,7 +169,7 @@ jobs:
             mkdir -p build/$proj-build
             preset=${{ matrix.os == 'macos-latest' && 'macos-release' || (matrix.os == 'windows-latest' && 'win-release' || 'linux-release') }}
             cmake --preset=$preset -S $proj -B build/$proj-build
-            # 并行编译（适配系统核心数）
+            # 并行编译
             if [[ ${{ matrix.os }} == "windows-latest" ]]; then
               cmake --build build/$proj-build --config Release --parallel (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors
             else
@@ -98,7 +178,7 @@ jobs:
             echo "==================== 工程 $proj 构建完成 ===================="
           done
 
-      # 批量运行工程
+      # 8. 批量运行工程
       - name: 批量运行 dayN 工程
         if: env.PROJECTS != ''
         shell: bash
@@ -106,7 +186,6 @@ jobs:
           IFS=' ' read -r -a projects_arr <<< "$PROJECTS"
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 运行工程：$proj ===================="
-            # 查找 Release 目录下的可执行文件
             if [[ ${{ matrix.os }} == "windows-latest" ]]; then
               EXEC_PATH=$(find build/$proj-build -name "${proj^^}${{ matrix.exec_suffix }}" -type f -path "*/Release/*")
             else
