@@ -28,7 +28,9 @@ jobs:
           'Linux'   = 'linux'
         }
         $hostName = $hostMap[$Env:RUNNER_OS]
-        $arch = (python -m aqt list-qt $hostName desktop --arch 6.9.2).Split("`n")[0].Trim()
+        # 只取第一行
+        $arch = (python -m aqt list-qt $hostName desktop --arch 6.9.2) -split "`r?`n" | Select-Object -First 1
+        if (-not $arch) { throw "No arch found for Qt 6.9.2 on $hostName" }
         Write-Output "arch=$arch" >> $Env:GITHUB_OUTPUT
 
     # ---------- 安装 Qt ----------
