@@ -19,7 +19,6 @@ jobs:
           - os: windows-latest
             qt_src: qt-everywhere-src-6.9.2.zip
             official_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/
-            extract_cmd: 7z x -aoa -bd  # Windows 用 7-Zip 解压命令
             qt_install_dir: ${{ github.workspace }}\qt-6.9.2-install
           - os: ubuntu-latest
             qt_src: qt-everywhere-src-6.9.2.tar.xz
@@ -56,9 +55,9 @@ jobs:
       - name: 安装依赖（Windows）
         if: matrix.os == 'windows-latest'
         run: |
-          choco install cmake ninja python3 7zip -y  # 确保 7-Zip 安装
+          choco install cmake ninja python3 7zip -y
           echo "CMAKE_PREFIX_PATH=C:\Program Files\CMake\bin" >> $env:GITHUB_ENV
-          echo "C:\Program Files\7-Zip" >> $env:GITHUB_PATH  # 添加 7-Zip 到环境变量
+          echo "C:\Program Files\7-Zip" >> $env:GITHUB_PATH  # 确保 7z 可执行
 
       # 2. 下载 Qt 6.9.2 源码
       - name: 下载 Qt 6.9.2 源码（Linux/macOS）
@@ -105,7 +104,7 @@ jobs:
             exit 1
           fi
 
-      # 4. 解压源码包
+      # 4. 解压源码包（核心修复：Windows 拆分 7z 命令与参数）
       - name: 解压 Qt 源码（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
@@ -117,10 +116,9 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          $extractCmd = "${{ matrix.extract_cmd }}"
           $qtSrc = "${{ matrix.qt_src }}"
-          # 执行 7-Zip 解压（-aoa 覆盖已存在文件，-bd 不显示进度条）
-          & $extractCmd $qtSrc
+          # 拆分命令与参数，直接执行 7z（避免字符串解析错误）
+          7z x $qtSrc -aoa -bd
           cd qt-everywhere-src-6.9.2
           echo "QT_SRC_DIR=$(Get-Location | Select-Object -ExpandProperty Path)" >> $env:GITHUB_ENV
 
