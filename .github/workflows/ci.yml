@@ -11,7 +11,6 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
         include:
-          # 适配不同系统的 Qt 架构和可执行文件后缀
           - os: macos-latest
             qt_arch: clang_64
             exec_suffix: ""
@@ -27,30 +26,29 @@ jobs:
       - name: 检出项目源代码
         uses: actions/checkout@v4
 
-      # 核心步骤：安装官方预编译 Qt 6.9.2（5分钟完成，缓存加速）
+      # 核心修复：安装 Qt 时指定正确模块（qtbase 包含 Core/Gui/Widgets）
       - name: 安装 Qt 6.9.2（官方预编译包）
         uses: jurplel/install-qt-action@v3
         with:
           version: "6.9.2"
           arch: ${{ matrix.qt_arch }}
-          cache: true  # 缓存 Qt 包，后续构建秒级完成
-          modules: "qtcore qtgui qtwidgets"  # 仅安装核心模块，精简体积
-          set-env: true  # 自动配置 Qt6_DIR 环境变量
+          cache: true
+          modules: "qtbase"  # 关键修复！qtbase 包含核心三模块，无需单独指定
+          set-env: true
 
-      # 补充 Linux 系统依赖（Qt 图形相关）
+      # 补充 Linux 系统依赖
       - name: 安装 Linux 基础依赖
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update -y
           sudo apt-get install -y libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-dev
-          sudo apt-get clean  # 清理缓存，释放空间
+          sudo apt-get clean
 
-      # 自动识别所有 dayN 工程（保持你原有的工程结构）
+      # 自动识别 dayN 工程
       - name: 自动识别 dayN 工程
         id: find_projects
         shell: bash
         run: |
-          # 跨平台查找 day+数字 格式的目录，按数字排序
           if [[ ${{ matrix.os }} == "windows-latest" ]]; then
             PROJECTS=$(powershell -Command "(Get-ChildItem -Directory -Filter 'day[0-9]*' | Sort-Object { [int]($_.Name -replace 'day', '') }).Name -join ' '")
           else
@@ -59,7 +57,7 @@ jobs:
           echo "PROJECTS=$PROJECTS" >> $GITHUB_ENV
           echo "识别到的工程：$PROJECTS"
 
-      # 批量构建所有 dayN 工程（使用你的 CMakePresets.json 配置）
+      # 批量构建 dayN 工程
       - name: 批量构建 dayN 工程
         if: env.PROJECTS != ''
         shell: bash
@@ -67,12 +65,9 @@ jobs:
           IFS=' ' read -r -a projects_arr <<< "$PROJECTS"
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 构建工程：$proj ===================="
-            # 创建构建目录
             mkdir -p build/$proj-build
-            # 使用 CMakePresets 构建（与你本地配置一致）
             cmake --preset=${{ matrix.os == 'macos-latest' && 'macos-release' || (matrix.os == 'windows-latest' && 'win-release' || 'linux-release') }} \
                   -S $proj -B build/$proj-build
-            # 并行编译（适配系统核心数）
             if [[ ${{ matrix.os }} == "windows-latest" ]]; then
               cmake --build build/$proj-build --config Release --parallel (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors
             else
@@ -81,7 +76,7 @@ jobs:
             echo "==================== 工程 $proj 构建完成 ===================="
           done
 
-      # 批量运行工程（验证可用性）
+      # 批量运行工程
       - name: 批量运行 dayN 工程
         if: env.PROJECTS != ''
         shell: bash
@@ -89,13 +84,11 @@ jobs:
           IFS=' ' read -r -a projects_arr <<< "$PROJECTS"
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 运行工程：$proj ===================="
-            # 查找可执行文件（适配不同系统路径）
             if [[ ${{ matrix.os }} == "windows-latest" ]]; then
               EXEC_PATH=$(find build/$proj-build -name "${proj^^}${{ matrix.exec_suffix }}" -type f -path "*/Release/*")
             else
               EXEC_PATH=$(find build/$proj-build -name "${proj^}${{ matrix.exec_suffix }}" -type f -executable -path "*/Release/*")
             fi
-            # 运行可执行文件
             if [[ -f "$EXEC_PATH" ]]; then
               echo "找到可执行文件：$EXEC_PATH"
               $EXEC_PATH || echo "工程 $proj 运行返回非零状态（非致命错误）"
