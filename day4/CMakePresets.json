@@ -1,29 +1,59 @@
 {
-  "version": 6,
-  "cmakeMinimumRequired": { "major": 3, "minor": 23, "patch": 0 },
+  "version": 6,  // 保持你的版本号（6是较新的格式，兼容3.23+）
+  "cmakeMinimumRequired": { "major": 3, "minor": 23, "patch": 0 },  // 保留你的CMake版本要求
   "configurePresets": [
+    // 新增：基础通用配置（所有平台共享，减少重复代码）
+    {
+      "name": "base",
+      "hidden": true,  // 隐藏，仅作为其他预设的"父配置"
+      "generator": "Ninja",  // 统一用Ninja（跨平台且速度快，你原配置已用，保持一致）
+      "binaryDir": "${sourceDir}/build",  // 统一构建目录（与CI脚本对应）
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",  // 统一Release模式
+        "CMAKE_CXX_STANDARD": "17",  // Qt6推荐C++17（避免语法兼容问题）
+        "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"  // 生成IDE索引文件（对你本地开发友好）
+      }
+    },
+
+    // 保留并优化：macOS 配置（你的原设置基础上补充）
     {
       "name": "macos-release",
       "displayName": "macOS Release",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build",
+      "inherits": "base",  // 继承基础配置，减少重复
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_PREFIX_PATH": "$env{Qt6_DIR}",
-        "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64"
-      },
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+        "CMAKE_PREFIX_PATH": "$env{Qt6_DIR}",  // 用环境变量（本地开发时你已设置，CI会自动设置）
+        "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64",  // 保留你的双架构支持（M芯片+Intel）
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "12.0"  // 补充：最低支持macOS 12（避免老系统无法运行）
+      }
     },
+
+    // 修正：Windows 配置（原配置硬编码了Mac路径，会导致Windows/CI失败）
     {
       "name": "win-release",
       "displayName": "Windows Release",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build",
+      "inherits": "base",  // 继承基础配置
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_PREFIX_PATH": "/Users/klein_lin/Qt/6.9.2/macos"
-      },
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+        "CMAKE_PREFIX_PATH": "$env{Qt6_DIR}",  // 关键修正：用环境变量（Windows上Qt路径不同，CI会自动设置）
+        "CMAKE_C_COMPILER": "cl.exe",  // 补充：明确Windows编译器（MSVC，CI环境默认有）
+        "CMAKE_CXX_COMPILER": "cl.exe"
+      }
+    },
+
+    // 新增：Linux 配置（适配CI的Linux平台，否则CI会找不到预设）
+    {
+      "name": "linux-release",
+      "displayName": "Linux Release",
+      "inherits": "base",  // 继承基础配置
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "$env{Qt6_DIR}",  // CI会自动设置Linux的Qt路径
+        "CMAKE_C_COMPILER": "gcc",  // Linux默认编译器
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_EXE_LINKER_FLAGS": "-ldl -lpthread"  // Linux下Qt程序常见依赖
+      }
     }
   ]
 }
