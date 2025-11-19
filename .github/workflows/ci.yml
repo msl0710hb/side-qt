@@ -1,4 +1,4 @@
-name: Qt Cross-Platform CI
+name: Qt 6.9.2 跨平台 CI（自动识别 dayN 工程）
 
 on:
   push:
@@ -12,27 +12,32 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
         include:
-          #  Qt 6.2.4 官方安装包直链（各平台稳定可用）
           - os: macos-latest
-            qt_url: "https://download.qt.io/archive/qt/6.2/6.2.4/qt-opensource-mac-x64-6.2.4.dmg"
-            qt_install_dir: "/Users/runner/Qt/6.2.4/macos"
-            qt_env_var: "QT_MACOS_DIR"
+            qt_version: "6.9.2"
+            qt_url: "https://download.qt.io/archive/qt/6.9/6.9.2/qt-opensource-mac-x64-6.9.2.dmg"
+            qt_install_dir: "/Users/runner/Qt/6.9.2/macos"
+            qt_components: "qt.qt6.692.clang_64"
+            qt_arch: "clang_64"
           - os: windows-latest
-            qt_url: "https://download.qt.io/archive/qt/6.2/6.2.4/qt-opensource-windows-x86_64-6.2.4.exe"
-            qt_install_dir: "C:\\Qt\\6.2.4\\msvc2019_64"
-            qt_env_var: "QT_WINDOWS_DIR"
+            qt_version: "6.9.2"
+            qt_url: "https://download.qt.io/archive/qt/6.9/6.9.2/qt-opensource-windows-x86_64-6.9.2.exe"
+            qt_install_dir: "C:\\Qt\\6.9.2\\msvc2019_64"
+            qt_components: "qt.qt6.692.win64_msvc2019_64"
+            qt_arch: "win64_msvc2019_64"
           - os: ubuntu-latest
-            qt_url: "https://download.qt.io/archive/qt/6.2/6.2.4/qt-opensource-linux-x64-6.2.4.run"
-            qt_install_dir: "/home/runner/Qt/6.2.4/gcc_64"
-            qt_env_var: "QT_LINUX_DIR"
+            qt_version: "6.9.2"
+            qt_url: "https://download.qt.io/archive/qt/6.9/6.9.2/qt-opensource-linux-x64-6.9.2.run"
+            qt_install_dir: "/home/runner/Qt/6.9.2/gcc_64"
+            qt_components: "qt.qt6.692.linux64_gcc_64"
+            qt_arch: "gcc_64"
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout source code
+      - name: 检出源代码
         uses: actions/checkout@v4
 
-      # 1. 安装依赖工具（解压/下载）
-      - name: Install dependencies
+      # 1. 安装依赖工具
+      - name: 安装依赖
         shell: bash
         run: |
           if [ "${{ matrix.os }}" = "macos-latest" ]; then
@@ -42,84 +47,172 @@ jobs:
           elif [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             sudo apt-get update && sudo apt-get install -y wget p7zip-full
           fi
-          
-      # 2. 下载 Qt 官方安装包
-      - name: Download Qt 6.2.4
+
+      # 2. 下载 Qt 6.9.2
+      - name: 下载 Qt ${{ matrix.qt_version }}
         shell: bash
         run: |
-          wget -c ${{ matrix.qt_url }} -O qt_installer.${{ matrix.os == 'macos-latest' && 'dmg' || matrix.os == 'windows-latest' && 'exe' || 'run' }}
-          
-      # 3. 解压/安装 Qt（无交互，静默安装）
-      - name: Extract/Install Qt
+          case "${{ matrix.os }}" in
+            macos-latest) INSTALLER="qt_installer.dmg" ;;
+            windows-latest) INSTALLER="qt_installer.exe" ;;
+            ubuntu-latest) INSTALLER="qt_installer.run" ;;
+          esac
+          wget -c ${{ matrix.qt_url }} -O $INSTALLER --timeout=300
+          if [ ! -f $INSTALLER ] || [ $(stat -c%s $INSTALLER 2>/dev/null || stat -f%s $INSTALLER) -lt 1000000 ]; then
+            echo "Qt 安装包下载失败！"
+            exit 1
+          fi
+
+      # 3. 静默安装 Qt 6.9.2
+      - name: 静默安装 Qt ${{ matrix.qt_version }}
         shell: bash
         run: |
           mkdir -p ${{ matrix.qt_install_dir }}
-          if [ "${{ matrix.os }}" = "macos-latest" ]; then
-            # 挂载 dmg 并复制文件
-            hdiutil attach qt_installer.dmg -mountpoint /Volumes/QtInstaller
-            cp -R /Volumes/QtInstaller/Qt\ 6.2.4/*.app/Contents/MacOS/* ${{ matrix.qt_install_dir }}
-            hdiutil detach /Volumes/QtInstaller
-          elif [ "${{ matrix.os }}" = "windows-latest" ]; then
-            # 静默安装 EXE
-            ./qt_installer.exe --script <(echo 'InstallDir="${{ matrix.qt_install_dir }}"; Components="qt.qt6.240.win64_msvc2019_64";') -platform minimal
-          elif [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-            # 赋予执行权限并静默安装
-            chmod +x qt_installer.run
-            ./qt_installer.run --script <(echo 'InstallDir="${{ matrix.qt_install_dir }}"; Components="qt.qt6.240.linux64_gcc_64";') -platform minimal
+          INSTALLER=""
+          case "${{ matrix.os }}" in
+            macos-latest)
+              INSTALLER="qt_installer.dmg"
+              hdiutil attach $INSTALLER -mountpoint /Volumes/QtInstaller -noverify -noautoopen || { echo "挂载失败"; exit 1; }
+              cp -R /Volumes/QtInstaller/Qt\ ${{ matrix.qt_version }}/${{ matrix.qt_arch }}/* ${{ matrix.qt_install_dir }}
+              hdiutil detach /Volumes/QtInstaller || true
+              ;;
+            windows-latest)
+              INSTALLER="qt_installer.exe"
+              ./$INSTALLER --script <(echo "InstallDir='${{ matrix.qt_install_dir }}'; Components='${{ matrix.qt_components }}';") -platform minimal || { echo "Windows 安装失败"; exit 1; }
+              ;;
+            ubuntu-latest)
+              INSTALLER="qt_installer.run"
+              chmod +x $INSTALLER
+              ./$INSTALLER --script <(echo "InstallDir='${{ matrix.qt_install_dir }}'; Components='${{ matrix.qt_components }}';") -platform minimal || { echo "Linux 安装失败"; exit 1; }
+              ;;
+          esac
+          if [ ! -f "${{ matrix.qt_install_dir }}/bin/qmake" ] && [ ! -f "${{ matrix.qt_install_dir }}/bin/qmake.exe" ]; then
+            echo "Qt 安装无效！"
+            ls -l ${{ matrix.qt_install_dir }}/bin
+            exit 1
           fi
-          
-      # 4. 设置 Qt6_DIR 环境变量（供 CMake 识别）
-      - name: Set Qt6_DIR
+
+      # 4. 配置 Qt 环境
+      - name: 配置 Qt 环境
         shell: bash
         run: |
           echo "Qt6_DIR=${{ matrix.qt_install_dir }}" >> $GITHUB_ENV
-          
-      # 5. 配置 CMake
-      - name: Configure CMake
+          echo "PATH=${{ matrix.qt_install_dir }}/bin:$PATH" >> $GITHUB_ENV
+          qmake --version || { echo "Qt 版本验证失败"; exit 1; }
+
+      # 5. 自动识别所有 dayN 工程（核心优化！无需手动修改）
+      - name: 自动识别 dayN 工程
+        id: find_projects
         shell: bash
         run: |
+          # 扫描根目录下所有 "day+数字" 格式的目录（如 day0、day1、day2、day10 等）
+          # 按数字升序排序（确保 day0 先构建，day10 后构建）
+          PROJECTS=$(find . -maxdepth 1 -type d -name "day[0-9]*" | sed 's|^\./||' | sort -V)
+          # 将识别结果存入环境变量，供后续步骤使用
+          echo "PROJECTS=($PROJECTS)" >> $GITHUB_ENV
+          # 打印识别到的工程（方便日志查看）
+          echo "识别到的工程：$PROJECTS"
+
+      # 6. 批量构建所有自动识别的工程
+      - name: 批量构建所有工程
+        shell: bash
+        run: |
+          # 从环境变量中获取自动识别的工程列表
+          PROJECTS=(${GITHUB_ENV#*PROJECTS=})
+          # 选择当前平台的 CMake 预设
           case "${{ matrix.os }}" in
             macos-latest) PRESET="macos-release" ;;
             windows-latest) PRESET="win-release" ;;
             ubuntu-latest) PRESET="linux-release" ;;
           esac
-          cmake --preset=$PRESET
-          
-      # 6. 构建项目
-      - name: Build project
-        shell: bash
-        run: cmake --build build --config Release --parallel 4
-          
-      # 7. Linux 运行依赖
-      - name: Install runtime dependencies (Linux)
+          # 循环构建每个工程（若未识别到工程，直接跳过）
+          if [ ${#PROJECTS[@]} -eq 0 ]; then
+            echo "未识别到任何 dayN 工程，跳过构建！"
+            exit 0
+          fi
+          for proj in "${PROJECTS[@]}"; do
+            echo -e "\n==================== 构建工程：$proj ===================="
+            cmake --preset=$PRESET -S $proj -B build/$proj-build
+            cmake --build build/$proj-build --config Release --parallel $(nproc 2>/dev/null || echo 4)
+            echo "==================== 工程 $proj 构建完成 ===================="
+          done
+
+      # 7. 安装 Linux 运行依赖
+      - name: 安装 Linux 运行依赖
         if: runner.os == 'Linux'
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxcb-xinerama0 libxcb-cursor0 libgl1-mesa-glx libxcb-icccm4 libxcb-image0
-          
-      # 8. 运行 - macOS
-      - name: "Run application (macOS)"
+          sudo apt-get install -y \
+            libxcb-xinerama0 libxcb-cursor0 libgl1-mesa-glx \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-render-util0 libxcb-shape0 libxcb-sync1 \
+            libxcb-util1 libxcb-xfixes0 libxkbcommon-x11-0 \
+            libfontconfig1 libfreetype6
+
+      # 8. 运行所有工程（macOS）
+      - name: 运行所有工程（macOS）
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          EXEC_PATH="./build/Release/QtVsCodeTemplate"
-          chmod +x $EXEC_PATH
-          $EXEC_PATH
-          
-      # 9. 运行 - Linux
-      - name: "Run application (Linux)"
+          PROJECTS=(${GITHUB_ENV#*PROJECTS=})
+          if [ ${#PROJECTS[@]} -eq 0 ]; then
+            echo "无工程可运行！"
+            exit 0
+          fi
+          for proj in "${PROJECTS[@]}"; do
+            echo -e "\n==================== 运行工程：$proj ===================="
+            EXEC_PATH="./build/$proj-build/Release/${proj^}"  # day0 -> Day0
+            if [ -f "$EXEC_PATH" ]; then
+              chmod +x $EXEC_PATH
+              $EXEC_PATH || echo "工程 $proj 运行失败（非致命错误）"
+            else
+              echo "工程 $proj 可执行文件未找到：$EXEC_PATH"
+            fi
+          done
+
+      # 9. 运行所有工程（Linux）
+      - name: 运行所有工程（Linux）
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          EXEC_PATH="./build/Release/QtVsCodeTemplate"
-          chmod +x $EXEC_PATH
-          $EXEC_PATH
-          
-      # 10. 运行 - Windows
-      - name: "Run application (Windows)"
+          PROJECTS=(${GITHUB_ENV#*PROJECTS=})
+          if [ ${#PROJECTS[@]} -eq 0 ]; then
+            echo "无工程可运行！"
+            exit 0
+          fi
+          for proj in "${PROJECTS[@]}"; do
+            echo -e "\n==================== 运行工程：$proj ===================="
+            EXEC_PATH="./build/$proj-build/Release/${proj^}"
+            if [ -f "$EXEC_PATH" ]; then
+              chmod +x $EXEC_PATH
+              $EXEC_PATH || echo "工程 $proj 运行失败（非致命错误）"
+            else
+              echo "工程 $proj 可执行文件未找到：$EXEC_PATH"
+            fi
+          done
+
+      # 10. 运行所有工程（Windows）
+      - name: 运行所有工程（Windows）
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $EXEC_PATH = ".\build\Release\QtVsCodeTemplate.exe"
-          & $EXEC_PATH
+          # 从环境变量中获取自动识别的工程列表
+          $envProjects = $env:PROJECTS
+          $PROJECTS = $envProjects -split ' ' | Where-Object { $_ -ne '' }
+          if ($PROJECTS.Count -eq 0) {
+            Write-Host "无工程可运行！"
+            exit 0
+          }
+          foreach ($proj in $PROJECTS) {
+            Write-Host "`n==================== 运行工程：$proj ===================="
+            $EXEC_PATH = ".\build\$proj-build\Release\$($proj.ToUpper())"  # day0 -> DAY0.exe
+            if (Test-Path "$EXEC_PATH.exe") {
+              & "$EXEC_PATH.exe"
+              if ($LASTEXITCODE -ne 0) {
+                Write-Warning "工程 $proj 运行失败（非致命错误）"
+              }
+            } else {
+              Write-Warning "工程 $proj 可执行文件未找到：$EXEC_PATH.exe"
+            }
+          }
