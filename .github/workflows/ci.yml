@@ -1,4 +1,4 @@
-name: Qt 6.9.2 源码编译 CI（官方链接+全平台兼容）
+name: Qt 6.9.2 源码编译 CI（官方链接+跨平台兼容）
 on:
   push:
     branches: [ main ]
@@ -64,19 +64,15 @@ jobs:
         run: |
           wget -c --tries=3 ${{ matrix.official_url }}${{ matrix.qt_src }} -O ${{ matrix.qt_src }} --timeout=600
 
-      # 3. 跨平台验证文件完整性（核心修复：修正 Linux 平台标识）
+      # 3. 跨平台验证文件完整性（核心修复：用 du 命令替代 stat）
       - name: 验证源码包完整性
         if: matrix.os != 'windows-latest'
         run: |
-          # 关键修复：Linux 平台标识为 ubuntu-latest（而非 linux-latest）
-          if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
-            FILE_SIZE=$(stat -c%s ${{ matrix.qt_src }})  # Linux 正确格式
-          else
-            FILE_SIZE=$(stat -f%s ${{ matrix.qt_src }})  # macOS 正确格式
-          fi
+          # 跨平台通用：du -sb 输出文件大小（字节），不受系统格式限制
+          FILE_SIZE=$(du -sb ${{ matrix.qt_src }} | awk '{print $1}')
           # Qt 6.9.2 全量源码包约 1.1G，小于 1G 视为不完整
           if [ $FILE_SIZE -lt 1000000000 ]; then
-            echo "Qt 源码包下载不完整！实际大小：$FILE_SIZE 字节"
+            echo "Qt 源码包下载不完整！实际大小：$FILE_SIZE 字节（需至少 1G）"
             exit 1
           fi
 
