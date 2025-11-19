@@ -1,0 +1,37 @@
+# -------------------------- 你提到的要忽略的文件 --------------------------
+# macOS 系统文件
+.DS_Store
+# clangd 缓存（你的截图中提到的）
+.cache/clangd/index/
+# VS Code 本地配置（若无需共享）
+.vscode/
+# 注意：如果 .vscode 里有团队共享配置（如 settings.json 格式化规则），可以改为：
+# .vscode/*
+# !.vscode/settings.json  # 保留需要共享的文件
+# !.vscode/extensions.json
+
+# -------------------------- Qt/CMake 项目通用忽略项 --------------------------
+# CMake 构建产物目录（自动生成，无需上传）
+build/
+install/
+# CMake 临时文件
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json  # 本地 IDE 索引文件（可选，若团队不需要共享）
+# Qt 生成的文件
+.qmake.stash
+*.pro.user
+*.pro.user.*
+*.qm
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+# 可执行文件（避免上传编译后的程序）
+QtVsCodeTemplate
+QtVsCodeTemplate.exe
+# 日志/临时文件
+*.log
+*.tmp
+*.bak
