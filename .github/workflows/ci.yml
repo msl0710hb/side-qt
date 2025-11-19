@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    # ---------- 1. 动态查出 Qt 6.9.* 当前平台第一个可用架构 ----------
+    - name: Detect Qt arch
+      id: qt_arch
+      shell: pwsh
+      run: |
+        python -m pip install -q aqtinstall==3.1.*
+        $arch = (python -m aqt list-qt $Env:RUNNER_OS.ToLower() desktop --arch 6.9.2).Split("`n")[0].Trim()
+        Write-Output "arch=$arch" >> $Env:GITHUB_OUTPUT
+
+    # ---------- 2. 用查到的架构装 Qt ----------
+    - name: Install Qt (aqtinstall)
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.9.*'
+        arch: ${{ steps.qt_arch.outputs.arch }}
+        cache: true
+
+    # ---------- 3. 后续保持你原来的逻辑 ----------
+    - name: Configure
+      run: cmake --preset=${{ matrix.os == 'windows-latest' && 'win-release' || 'macos-release' }}
+
+    - name: Build
+      run: cmake --build build
+
+    - name: Run (Unix)
+      if: runner.os != 'Windows'
+      run: ./build/QtVsCodeTemplate
