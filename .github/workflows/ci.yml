@@ -11,6 +11,14 @@ jobs:
     strategy:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
+        # 为每个平台绑定唯一正确的 Qt 架构
+        include:
+          - os: macos-latest
+            qt_arch: clang_64  # macOS 唯一架构（支持 Intel/M1/M2）
+          - os: windows-latest
+            qt_arch: win64_msvc2022_64  # Windows 唯一架构（MSVC 2022 64位）
+          - os: ubuntu-latest
+            qt_arch: gcc_64  # Linux 唯一架构（GCC 64位）
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -18,81 +26,63 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # 2. 检测 Qt 架构
-      - name: Detect Qt architecture
-        id: qt_arch
-        shell: pwsh
-        run: |
-          python -m pip install -q aqtinstall==3.1.*
-          $hostMap = @{
-            'Windows' = 'windows'
-            'macOS'   = 'mac'
-            'Linux'   = 'linux'
-          }
-          $hostName = $hostMap[$Env:RUNNER_OS]
-          $output = [string](python -m aqt list-qt $hostName desktop --arch 6.9.2)
-          $archList = @($output -split "`r?`n" | Where-Object { $_ -match '\S' })
-          if (-not $archList -or $archList.Count -eq 0) {
-            throw "No valid architecture found for Qt 6.9.2 on $hostName (OS: ${{ matrix.os }})"
-          }
-          $arch = $archList | Select-Object -First 1
-          $arch = $arch.Trim()
-          Write-Host "✅ Detected Qt arch: $arch"
-          Write-Output "arch=$arch" >> $Env:GITHUB_OUTPUT
-
-      # 3. 安装 Qt
+      # 2. 安装 Qt 6.9.2（精准指定架构，无多余参数）
       - name: Install Qt 6.9.2
         uses: jurplel/install-qt-action@v3
         with:
           version: '6.9.2'
-          arch: ${{ steps.qt_arch.outputs.arch }}
+          arch: ${{ matrix.qt_arch }}  # 直接使用矩阵中绑定的唯一架构
           cache: true
-          aqtversion: '==3.1.*'
+          aqtversion: '==3.1.21'  # 锁定 aqtinstall 版本（避免兼容波动）
           dir: ${{ github.workspace }}/Qt
+          timeout-minutes: 15  # 延长超时，应对网络波动
 
-      # 4. 配置 CMake
+      # 3. 配置 CMake（按平台选择预设）
       - name: Configure CMake
-        shell: pwsh
+        shell: bash
         run: |
-          switch -Wildcard ('${{ matrix.os }}') {
-            'windows-latest' { $preset = 'win-release' }
-            'macos-latest'   { $preset = 'macos-release' }
-            'ubuntu-latest'  { $preset = 'linux-release' }
-            default { throw "❌ Unsupported OS: ${{ matrix.os }}" }
-          }
-          Write-Host "🔧 Configuring CMake with preset: $preset"
-          cmake --preset=$preset
+          case "${{ matrix.os }}" in
+            macos-latest) PRESET="macos-release" ;;
+            windows-latest) PRESET="win-release" ;;
+            ubuntu-latest) PRESET="linux-release" ;;
+          esac
+          cmake --preset=$PRESET
 
-      # 5. 构建项目
+      # 4. 构建项目
       - name: Build project
-        shell: pwsh
+        shell: bash
         run: cmake --build build --config Release --parallel 4
 
-      # 6. 运行应用 - macOS 平台（独立步骤）
+      # 5. Linux 安装运行依赖（避免缺失库报错）
+      - name: Install runtime dependencies (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-xinerama0 libxcb-cursor0 libgl1-mesa-glx
+
+      # 6. 运行 - macOS
       - name: "Run application (macOS)"
         if: runner.os == 'macOS'
         shell: bash
         run: |
           EXEC_PATH="./build/Release/QtVsCodeTemplate"
           chmod +x $EXEC_PATH
-          echo "▶️ Running application on macOS: $EXEC_PATH"
           $EXEC_PATH
 
-      # 7. 运行应用 - Linux 平台（独立步骤）
+      # 7. 运行 - Linux
       - name: "Run application (Linux)"
         if: runner.os == 'Linux'
         shell: bash
         run: |
           EXEC_PATH="./build/Release/QtVsCodeTemplate"
           chmod +x $EXEC_PATH
-          echo "▶️ Running application on Linux: $EXEC_PATH"
           $EXEC_PATH
 
-      # 8. 运行应用 - Windows 平台（独立步骤）
+      # 8. 运行 - Windows
       - name: "Run application (Windows)"
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $EXEC_PATH = ".\build\Release\QtVsCodeTemplate.exe"
-          echo "▶️ Running application on Windows: $EXEC_PATH"
           & $EXEC_PATH
