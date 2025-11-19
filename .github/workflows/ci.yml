@@ -16,7 +16,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # ---------- 1. 动态查询 Qt 6.9.2 当前平台第一个可用架构 ----------
+    # 1. 动态查询 Qt 6.9.2 架构（保持原逻辑，确保只输出单个架构）
     - name: Detect Qt arch
       id: qt_arch
       shell: pwsh
@@ -28,27 +28,42 @@ jobs:
           'Linux'   = 'linux'
         }
         $hostName = $hostMap[$Env:RUNNER_OS]
-        # 只取第一行，去掉首尾空白
-        $arch = (python -m aqt list-qt $hostName desktop --arch 6.9.2) -split "`r?`n" | Select-Object -First 1
-        if (-not $arch) { throw "No arch found for Qt 6.9.2 on $hostName" }
-        $arch = $arch.Trim()
+        $archList = (python -m aqt list-qt $hostName desktop --arch 6.9.2) -split "`r?`n" | Where-Object { $_ -ne "" }
+        if (-not $archList) { throw "No arch found for Qt 6.9.2 on $hostName" }
+        $arch = $archList[0].Trim() # 强制取第一个有效架构
         Write-Output "arch=$arch" >> $Env:GITHUB_OUTPUT
 
-    # ---------- 2. 安装 Qt ----------
+    # 2. 安装 Qt（关键修改：统一版本为 6.9.2，确保只传递单个架构）
     - name: Install Qt (aqtinstall)
       uses: jurplel/install-qt-action@v3
       with:
-        version: '6.9.*'
-        arch: ${{ steps.qt_arch.outputs.arch }}
+        version: '6.9.2' # 与查询时版本统一
+        arch: ${{ steps.qt_arch.outputs.arch }} # 仅传递单个架构
         cache: true
+        aqtversion: '==3.1.*' # 锁定 aqtinstall 版本，避免兼容问题
 
-    # ---------- 3. 后续保持你原来的逻辑 ----------
+    # 3. 修复 CMake 预设选择（支持 Linux 平台）
     - name: Configure
-      run: cmake --preset=${{ matrix.os == 'windows-latest' && 'win-release' || 'macos-release' }}
+      shell: pwsh
+      run: |
+        if ('${{ matrix.os }}' -eq 'windows-latest') {
+          $preset = 'win-release'
+        } elseif ('${{ matrix.os }}' -eq 'macos-latest') {
+          $preset = 'macos-release'
+        } else {
+          $preset = 'linux-release'
+        }
+        cmake --preset=$preset
 
+    # 4. 构建（保持原逻辑）
     - name: Build
       run: cmake --build build
 
+    # 5. 运行（补充 Windows 平台）
     - name: Run (Unix)
       if: runner.os != 'Windows'
       run: ./build/QtVsCodeTemplate
+
+    - name: Run (Windows)
+      if: runner.os == 'Windows'
+      run: .\build\QtVsCodeTemplate.exe
