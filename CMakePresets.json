@@ -10,51 +10,38 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_CXX_STANDARD": "17",
-        "CMAKE_CXX_STANDARD_REQUIRED": "ON",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
-      }
-    },
-    {
-      "name": "macos-release",
-      "displayName": "macOS Release",
-      "inherits": "base",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
-      "cacheVariables": {
-        "CMAKE_PREFIX_PATH": "$env{Qt6_DIR}",
-        "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64",
-        "CMAKE_OSX_DEPLOYMENT_TARGET": "12.0",
-        "Qt6Widgets_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Widgets",
-        "Qt6Core_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Core",
-        "Qt6Gui_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Gui"
-      }
-    },
-    {
-      "name": "win-release",
-      "displayName": "Windows Release",
-      "inherits": "base",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
-      "cacheVariables": {
-        "CMAKE_PREFIX_PATH": "$env{Qt6_DIR}",
-        "CMAKE_C_COMPILER": "cl.exe",
-        "CMAKE_CXX_COMPILER": "cl.exe",
-        "Qt6Widgets_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Widgets",
-        "Qt6Core_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Core",
-        "Qt6Gui_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Gui"
+        "CMAKE_CXX_STANDARD_REQUIRED": "ON"
       }
     },
     {
       "name": "linux-release",
-      "displayName": "Linux Release",
       "inherits": "base",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
       "cacheVariables": {
         "CMAKE_PREFIX_PATH": "$env{Qt6_DIR}",
         "CMAKE_C_COMPILER": "gcc",
         "CMAKE_CXX_COMPILER": "g++",
-        "CMAKE_EXE_LINKER_FLAGS": "-ldl -lpthread",
-        "Qt6Widgets_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Widgets",
-        "Qt6Core_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Core",
-        "Qt6Gui_DIR": "$env{Qt6_DIR}/lib/cmake/Qt6Gui"
+        "CMAKE_EXE_LINKER_FLAGS": "-ldl -lpthread"
+      }
+    },
+    {
+      "name": "win-release",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "$env{Qt6_DIR}",
+        "CMAKE_C_COMPILER": "cl.exe",
+        "CMAKE_CXX_COMPILER": "cl.exe"
+      }
+    },
+    {
+      "name": "macos-release",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "$env{Qt6_DIR}",
+        "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "12.0"
       }
     }
   ]
