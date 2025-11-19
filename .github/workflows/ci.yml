@@ -12,13 +12,13 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
         include:
-          # 选用 Qt 6.2.4 LTS（跨平台包最稳定，无 qt_base 缺失问题）
+          # Qt 6.2.4 LTS（官方插件适配最完善）
           - os: macos-latest
             qt_version: '6.2.4'
             qt_arch: 'clang_64'
           - os: windows-latest
             qt_version: '6.2.4'
-            qt_arch: 'win64_msvc2019_64'  # 6.2.4 对应 MSVC 2019 架构（兼容性更广）
+            qt_arch: 'win64_msvc2019_64'
           - os: ubuntu-latest
             qt_version: '6.2.4'
             qt_arch: 'gcc_64'
@@ -28,26 +28,16 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # 修复 Windows Python 权限警告：手动指定 Python 路径
-      - name: Set Python path (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          echo "PYTHONPATH=C:\hostedtoolcache\windows\Python\3.11.9\x64" >> $env:GITHUB_ENV
-          echo "PATH=C:\hostedtoolcache\windows\Python\3.11.9\x64;$env:PATH" >> $env:GITHUB_ENV
-
-      # 极简 Qt 安装（仅保留核心参数，避免冲突）
-      - name: Install Qt ${{ matrix.qt_version }}
-        uses: jurplel/install-qt-action@v3
+      # 关键修改：用 Qt 官方插件安装 Qt（替代 aqtinstall）
+      - name: Install Qt ${{ matrix.qt_version }} (Official Plugin)
+        uses: qt/qt-action@v3
         with:
           version: ${{ matrix.qt_version }}
           arch: ${{ matrix.qt_arch }}
           cache: true
-          aqtversion: '==3.1.10'  # 锁定更稳定的 aqtinstall 旧版本（适配 Qt 6.2.4）
-          dir: ${{ github.workspace }}/Qt
-          modules: 'qtbase'  # 强制安装核心模块，避免包缺失
+          # 官方插件自动处理模块依赖，无需手动指定 qtbase
 
-      # 配置 CMake
+      # 配置 CMake（官方插件会自动设置 Qt6_DIR 环境变量）
       - name: Configure CMake
         shell: bash
         run: |
