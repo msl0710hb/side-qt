@@ -16,7 +16,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # ---------- 动态查询 Qt 6.9.2 当前平台第一个可用架构 ----------
+    # ---------- 1. 动态查询 Qt 6.9.2 当前平台第一个可用架构 ----------
     - name: Detect Qt arch
       id: qt_arch
       shell: pwsh
@@ -28,12 +28,13 @@ jobs:
           'Linux'   = 'linux'
         }
         $hostName = $hostMap[$Env:RUNNER_OS]
-        # 只取第一行
+        # 只取第一行，去掉首尾空白
         $arch = (python -m aqt list-qt $hostName desktop --arch 6.9.2) -split "`r?`n" | Select-Object -First 1
         if (-not $arch) { throw "No arch found for Qt 6.9.2 on $hostName" }
+        $arch = $arch.Trim()
         Write-Output "arch=$arch" >> $Env:GITHUB_OUTPUT
 
-    # ---------- 安装 Qt ----------
+    # ---------- 2. 安装 Qt ----------
     - name: Install Qt (aqtinstall)
       uses: jurplel/install-qt-action@v3
       with:
@@ -41,7 +42,7 @@ jobs:
         arch: ${{ steps.qt_arch.outputs.arch }}
         cache: true
 
-    # ---------- 后续保持你原来的逻辑 ----------
+    # ---------- 3. 后续保持你原来的逻辑 ----------
     - name: Configure
       run: cmake --preset=${{ matrix.os == 'windows-latest' && 'win-release' || 'macos-release' }}
 
