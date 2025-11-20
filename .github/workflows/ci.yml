@@ -16,19 +16,16 @@ jobs:
             qt_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/qt-everywhere-src-6.9.2.tar.xz
             exec_suffix: ""
             cxx_flags: "-stdlib=libc++"
-            qt_arch: "clang_64"  # 明确 Qt 架构
           - os: windows-latest
             qt_file: qt-everywhere-src-6.9.2.zip
             qt_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/qt-everywhere-src-6.9.2.zip
             exec_suffix: .exe
             cxx_flags: ""
-            qt_arch: "win64_msvc2019_64"
           - os: ubuntu-latest
             qt_file: qt-everywhere-src-6.9.2.tar.xz
             qt_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/qt-everywhere-src-6.9.2.tar.xz
             exec_suffix: ""
             cxx_flags: "-ldl -lpthread"
-            qt_arch: "gcc_64"
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -107,7 +104,7 @@ jobs:
           echo "QT_BASE_DIR=$qtBaseDir" >> $env:GITHUB_ENV
           echo "QT_INSTALL_DIR=${{ github.workspace }}\qt-6.9.2-install" >> $env:GITHUB_ENV
 
-      # 4. 编译 qtbase（仅核心模块，明确架构）
+      # 4. 编译 qtbase（仅核心模块，删除无效 -arch 参数）
       - name: 编译 qtbase（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
@@ -116,8 +113,7 @@ jobs:
             -prefix ${{ env.QT_INSTALL_DIR }} \
             -release -opensource -confirm-license \
             -nomake examples -nomake tests -nomake tools \
-            -arch ${{ matrix.qt_arch }} \  # 明确编译架构
-            -- -GNinja
+            -- -GNinja  # 移除所有平台的 -arch 参数（仅 macOS 预编译包支持，源码编译不支持）
           cmake --build . --parallel $(($(nproc 2>/dev/null || echo 4) / 2))
           cmake --install .
 
@@ -130,13 +126,12 @@ jobs:
             -prefix "$env:QT_INSTALL_DIR" `
             -release -opensource -confirm-license `
             -nomake examples -nomake tests -nomake tools `
-            -arch ${{ matrix.qt_arch }} `
             -- -GNinja
           $threadCount = [math]::Floor((Get-CimInstance Win32_Processor).NumberOfLogicalProcessors / 2)
           cmake --build . --parallel $threadCount
           cmake --install .
 
-      # 5. 配置 Qt 环境变量（补充模块路径）
+      # 5. 配置 Qt 环境变量（补充模块路径，确保链接）
       - name: 配置 Qt 环境（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
@@ -175,7 +170,7 @@ jobs:
           echo "识别到的工程：$PROJECTS"
           echo "PROJECTS=$PROJECTS" >> $GITHUB_ENV
 
-      # 7. 批量构建 dayN 工程（核心修复：补充 Qt 模块链接和架构）
+      # 7. 批量构建 dayN 工程（修复链接参数，确保 Qt 模块链接完整）
       - name: 批量构建 dayN 工程（Linux/macOS）
         if: matrix.os != 'windows-latest' && env.PROJECTS != ''
         shell: bash
@@ -184,15 +179,15 @@ jobs:
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 构建工程：$proj ===================="
             mkdir -p build/$proj-build
+            # 核心修复：明确 Qt 库路径和链接参数，确保模块链接完整
             cmake -S $proj -B build/$proj-build \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_PREFIX_PATH="${{ env.QT_INSTALL_DIR }}" \
               -DCMAKE_CXX_STANDARD=17 \
               -DCMAKE_CXX_STANDARD_REQUIRED=ON \
               -DCMAKE_CXX_FLAGS="${{ matrix.cxx_flags }}" \
-              -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.cxx_flags }} -L${{ env.QT_INSTALL_DIR }}/lib" \  # 明确 Qt 库路径
-              -DCMAKE_OSX_ARCHITECTURES="${{ matrix.qt_arch == 'clang_64' && 'x86_64;arm64' || 'x86_64' }}" \  # 适配 macOS 架构
-              -DCMAKE_OSX_DEPLOYMENT_TARGET="12.0"
+              -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.cxx_flags }} -L${{ env.QT_INSTALL_DIR }}/lib -lQt6Core -lQt6Gui -lQt6Widgets" \  # 显式链接核心库
+              ${{ matrix.os == 'macos-latest' && '-DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DCMAKE_OSX_DEPLOYMENT_TARGET="12.0"' || '' }}
             # 并行编译
             cmake --build build/$proj-build --config Release --parallel $(nproc 2>/dev/null || echo 4)
             echo "==================== 工程 $proj 构建完成 ===================="
@@ -213,7 +208,7 @@ jobs:
               -DCMAKE_CXX_STANDARD_REQUIRED=ON `
               -DCMAKE_C_COMPILER="cl.exe" `
               -DCMAKE_CXX_COMPILER="cl.exe" `
-              -DCMAKE_EXE_LINKER_FLAGS="/LIBPATH:$env:QT_INSTALL_DIR\lib"  # 明确 Qt 库路径
+              -DCMAKE_EXE_LINKER_FLAGS="/LIBPATH:$env:QT_INSTALL_DIR\lib Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib"  # 显式链接 Windows 库文件
             $threadCount = [math]::Floor((Get-CimInstance Win32_Processor).NumberOfLogicalProcessors / 2)
             cmake --build build/$proj-build --config Release --parallel $threadCount
             Write-Host "==================== 工程 $proj 构建完成 ===================="
