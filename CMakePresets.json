@@ -11,7 +11,7 @@
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_CXX_STANDARD": "17",
         "CMAKE_CXX_STANDARD_REQUIRED": "ON",
-        "CMAKE_PREFIX_PATH": "${env:QT_INSTALL_DIR}",  // 读取 CI 配置的 Qt 安装目录
+        "CMAKE_PREFIX_PATH": "${env:QT_INSTALL_DIR}",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },
