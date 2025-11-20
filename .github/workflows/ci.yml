@@ -8,6 +8,7 @@ on:
 jobs:
   build-and-run:
     strategy:
+      fail-fast: false
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
         include:
@@ -32,7 +33,7 @@ jobs:
       - name: 检出项目源代码（side-qt 根目录）
         uses: actions/checkout@v4
 
-      # ============== 新增缓存 ==============
+      # ============== 缓存 Qt 安装目录 ==============
       - name: Cache Qt install
         id: cache-qt
         uses: actions/cache@v4
@@ -68,7 +69,7 @@ jobs:
           echo "C:\Program Files\7-Zip" >> $env:GITHUB_PATH
           echo "CMAKE_PREFIX_PATH=C:\Program Files\CMake\bin" >> $env:GITHUB_ENV
 
-      # 2. 下载 Qt 源码（未命中缓存才下）
+      # 2. 下载 Qt 源码（缓存命中则跳过）
       - name: 下载 Qt 源码（Linux/macOS）
         if: matrix.os != 'windows-latest' && steps.cache-qt.outputs.cache-hit != 'true'
         run: |
@@ -112,7 +113,7 @@ jobs:
           echo "QT_BASE_DIR=$qtBaseDir" >> $env:GITHUB_ENV
           echo "QT_INSTALL_DIR=${{ github.workspace }}\qt-6.9.2-install" >> $env:GITHUB_ENV
 
-      # 4. 编译 qtbase（无无效参数，缓存命中则跳过）
+      # 4. 编译 qtbase（缓存命中则跳过）
       - name: 编译 qtbase（Linux/macOS）
         if: matrix.os != 'windows-latest' && steps.cache-qt.outputs.cache-hit != 'true'
         run: |
@@ -139,7 +140,7 @@ jobs:
           cmake --build . --parallel $threadCount
           cmake --install .
 
-      # 5. 配置 Qt 环境变量（分平台兼容）
+      # 5. 配置 Qt 环境变量
       - name: 配置 Qt 环境（Linux）
         if: matrix.os == 'ubuntu-latest'
         run: |
