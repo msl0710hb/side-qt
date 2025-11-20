@@ -1,4 +1,4 @@
-name: Qt 6.9.2 无插件 CI（side-qt 最终稳定版）
+name: Qt 6.9.2 无插件 CI（side-qt 终极稳定版·含缓存）
 on:
   push:
     branches: [ main ]
@@ -32,7 +32,15 @@ jobs:
       - name: 检出项目源代码（side-qt 根目录）
         uses: actions/checkout@v4
 
-      # 1. 安装基础依赖（保持你原本的配置）
+      # ============== 新增缓存 ==============
+      - name: Cache Qt install
+        id: cache-qt
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/qt-6.9.2-install
+          key: qt-6.9.2-${{ matrix.os }}-${{ hashFiles('.github/workflows/qt69-ci.yml') }}
+
+      # 1. 安装基础依赖
       - name: 安装依赖（Ubuntu 24.04）
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -43,26 +51,26 @@ jobs:
             libxcb-xinerama0-dev libxcb-icccm4-dev libxcb-keysyms1-dev \
             libxcb-image0-dev libxcb-util0-dev libxcb-xinput-dev \
             libxcb-xfixes0-dev libxcb-xkb-dev zlib1g-dev \
-            wget tar
+            wget tar sed
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
       - name: 安装依赖（macOS）
         if: matrix.os == 'macos-latest'
         run: |
-          brew install cmake ninja python3 wget pkg-config
+          brew install cmake ninja python3 wget pkg-config sed
           brew cleanup
 
       - name: 安装依赖（Windows）
         if: matrix.os == 'windows-latest'
         run: |
-          choco install cmake ninja python3 7zip wget -y
+          choco install cmake ninja python3 7zip wget sed -y
           echo "C:\Program Files\7-Zip" >> $env:GITHUB_PATH
           echo "CMAKE_PREFIX_PATH=C:\Program Files\CMake\bin" >> $env:GITHUB_ENV
 
-      # 2. 下载 Qt 源码（保持原有逻辑）
+      # 2. 下载 Qt 源码（未命中缓存才下）
       - name: 下载 Qt 源码（Linux/macOS）
-        if: matrix.os != 'windows-latest'
+        if: matrix.os != 'windows-latest' && steps.cache-qt.outputs.cache-hit != 'true'
         run: |
           wget -c --tries=5 ${{ matrix.qt_url }} -O ${{ matrix.qt_file }} --timeout=1200
           FILE_SIZE=$(du -sb ${{ matrix.qt_file }} | awk '{print $1}')
@@ -71,7 +79,7 @@ jobs:
           fi
 
       - name: 下载 Qt 源码（Windows）
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-latest' && steps.cache-qt.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $outputFile = "${{ matrix.qt_file }}"
@@ -82,7 +90,7 @@ jobs:
             throw "Qt 源码下载不完整！"
           }
 
-      # 3. 解压源码（仅保留 qtbase 模块，保持原有逻辑）
+      # 3. 解压源码（仅保留 qtbase 模块）
       - name: 解压并提取 qtbase（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
@@ -104,9 +112,9 @@ jobs:
           echo "QT_BASE_DIR=$qtBaseDir" >> $env:GITHUB_ENV
           echo "QT_INSTALL_DIR=${{ github.workspace }}\qt-6.9.2-install" >> $env:GITHUB_ENV
 
-      # 4. 编译 qtbase（删除所有无效参数，恢复你原本的编译命令）
+      # 4. 编译 qtbase（无无效参数，缓存命中则跳过）
       - name: 编译 qtbase（Linux/macOS）
-        if: matrix.os != 'windows-latest'
+        if: matrix.os != 'windows-latest' && steps.cache-qt.outputs.cache-hit != 'true'
         run: |
           cd ${{ env.QT_BASE_DIR }}
           ./configure \
@@ -118,7 +126,7 @@ jobs:
           cmake --install .
 
       - name: 编译 qtbase（Windows）
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-latest' && steps.cache-qt.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           cd $env:QT_BASE_DIR
@@ -131,14 +139,14 @@ jobs:
           cmake --build . --parallel $threadCount
           cmake --install .
 
-      # 5. 配置 Qt 环境变量（分平台修复，不改动原有有效配置）
+      # 5. 配置 Qt 环境变量（分平台兼容）
       - name: 配置 Qt 环境（Linux）
         if: matrix.os == 'ubuntu-latest'
         run: |
           echo "Qt6_DIR=${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6" >> $GITHUB_ENV
           echo "QT_INSTALL_DIR=${{ env.QT_INSTALL_DIR }}" >> $GITHUB_ENV
           echo "${{ env.QT_INSTALL_DIR }}/bin" >> $GITHUB_PATH
-          export LD_LIBRARY_PATH="${{ env.QT_INSTALL_DIR }}/lib:$LD_LIBRARY_PATH"
+          echo "LD_LIBRARY_PATH=${{ env.QT_INSTALL_DIR }}/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
       - name: 配置 Qt 环境（macOS）
         if: matrix.os == 'macos-latest'
@@ -146,7 +154,7 @@ jobs:
           echo "Qt6_DIR=${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6" >> $GITHUB_ENV
           echo "QT_INSTALL_DIR=${{ env.QT_INSTALL_DIR }}" >> $GITHUB_ENV
           echo "${{ env.QT_INSTALL_DIR }}/bin" >> $GITHUB_PATH
-          export DYLD_LIBRARY_PATH="${{ env.QT_INSTALL_DIR }}/lib:$DYLD_LIBRARY_PATH"
+          echo "DYLD_LIBRARY_PATH=${{ env.QT_INSTALL_DIR }}/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
 
       - name: 配置 Qt 环境（Windows）
         if: matrix.os == 'windows-latest'
@@ -156,7 +164,7 @@ jobs:
           echo "QT_INSTALL_DIR=$env:QT_INSTALL_DIR" >> $env:GITHUB_ENV
           echo "$env:QT_INSTALL_DIR\bin" >> $env:GITHUB_PATH
 
-      # 6. 自动识别 dayN 工程（仅过滤 day1、day2，不改动其他逻辑）
+      # 6. 自动识别 dayN 工程（忽略 day1、day2）
       - name: 自动识别 dayN 工程（忽略 day1、day2）
         id: find_projects
         shell: bash
@@ -169,7 +177,7 @@ jobs:
           echo "识别到的工程：$PROJECTS"
           echo "PROJECTS=$PROJECTS" >> $GITHUB_ENV
 
-      # 7. 批量构建 dayN 工程（恢复你原本的构建命令，仅修复链接问题）
+      # 7. 批量构建 dayN 工程
       - name: 批量构建 dayN 工程（Linux/macOS）
         if: matrix.os != 'windows-latest' && env.PROJECTS != ''
         shell: bash
@@ -184,7 +192,6 @@ jobs:
               -DCMAKE_CXX_STANDARD=17 \
               -DCMAKE_CXX_STANDARD_REQUIRED=ON \
               -DCMAKE_CXX_FLAGS="${{ matrix.cxx_flags }}"
-            # 并行编译
             cmake --build build/$proj-build --config Release --parallel $(nproc 2>/dev/null || echo 4)
             echo "==================== 工程 $proj 构建完成 ===================="
           done
@@ -207,7 +214,7 @@ jobs:
             Write-Host "==================== 工程 $proj 构建完成 ===================="
           }
 
-      # 8. 批量运行 dayN 工程（保持原有逻辑）
+      # 8. 批量运行 dayN 工程
       - name: 批量运行 dayN 工程（Linux/macOS）
         if: matrix.os != 'windows-latest' && env.PROJECTS != ''
         shell: bash
@@ -215,12 +222,17 @@ jobs:
           IFS=' ' read -r -a projects_arr <<< "$PROJECTS"
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 运行工程：$proj ===================="
-            EXEC_PATH=$(find build/$proj-build -name "${proj^}${{ matrix.exec_suffix }}" -type f -executable)
+            EXEC_NAME=$(echo "$proj" | sed 's/^./\U&/')
+            EXEC_PATH=$(find build/$proj-build -name "$EXEC_NAME${{ matrix.exec_suffix }}" -type f -executable)
             if [[ -f "$EXEC_PATH" ]]; then
               echo "找到可执行文件：$EXEC_PATH"
-              $EXEC_PATH || echo "工程 $proj 运行返回非零状态（非致命错误）"
+              if [[ ${{ matrix.os }} == "macos-latest" ]]; then
+                DYLD_LIBRARY_PATH="${{ env.QT_INSTALL_DIR }}/lib" $EXEC_PATH || echo "工程 $proj 运行返回非零状态（非致命错误）"
+              else
+                LD_LIBRARY_PATH="${{ env.QT_INSTALL_DIR }}/lib" $EXEC_PATH || echo "工程 $proj 运行返回非零状态（非致命错误）"
+              fi
             else
-              echo "警告：工程 $proj 未找到可执行文件"
+              echo "警告：工程 $proj 未找到可执行文件（预期文件名：$EXEC_NAME${{ matrix.exec_suffix }}）"
             fi
             echo "==================== 工程 $proj 运行完成 ===================="
           done
@@ -232,7 +244,8 @@ jobs:
           $projectsArr = $env:PROJECTS -split ' ' | Where-Object { $_ -ne '' }
           foreach ($proj in $projectsArr) {
             Write-Host "`n==================== 运行工程：$proj ===================="
-            $execPath = Get-ChildItem -Path build/$proj-build -Filter "${proj.ToUpper()}${{ matrix.exec_suffix }}" -Recurse -File | Select-Object -First 1 -ExpandProperty FullName
+            $execName = $proj.ToUpper()
+            $execPath = Get-ChildItem -Path build/$proj-build -Filter "$execName${{ matrix.exec_suffix }}" -Recurse -File | Select-Object -First 1 -ExpandProperty FullName
             if (Test-Path $execPath) {
               Write-Host "找到可执行文件：$execPath"
               & $execPath
@@ -240,7 +253,7 @@ jobs:
                 Write-Warning "工程 $proj 运行返回非零状态（非致命错误）"
               }
             } else {
-              Write-Warning "警告：工程 $proj 未找到可执行文件"
+              Write-Warning "警告：工程 $proj 未找到可执行文件（预期文件名：$execName${{ matrix.exec_suffix }}）"
             }
             Write-Host "==================== 工程 $proj 运行完成 ===================="
           }
