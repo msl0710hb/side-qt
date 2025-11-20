@@ -1,4 +1,4 @@
-name: Qt 6.9.2 无插件 CI（side-qt 最终适配版）
+name: Qt 6.9.2 无插件 CI（side-qt 全平台兼容版）
 on:
   push:
     branches: [ main ]
@@ -104,7 +104,7 @@ jobs:
           echo "QT_BASE_DIR=$qtBaseDir" >> $env:GITHUB_ENV
           echo "QT_INSTALL_DIR=${{ github.workspace }}\qt-6.9.2-install" >> $env:GITHUB_ENV
 
-      # 4. 编译 qtbase（仅核心模块，删除无效 -arch 参数）
+      # 4. 编译 qtbase（仅核心模块，无无效参数）
       - name: 编译 qtbase（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
@@ -113,7 +113,7 @@ jobs:
             -prefix ${{ env.QT_INSTALL_DIR }} \
             -release -opensource -confirm-license \
             -nomake examples -nomake tests -nomake tools \
-            -- -GNinja  # 移除所有平台的 -arch 参数（仅 macOS 预编译包支持，源码编译不支持）
+            -- -GNinja
           cmake --build . --parallel $(($(nproc 2>/dev/null || echo 4) / 2))
           cmake --install .
 
@@ -131,9 +131,9 @@ jobs:
           cmake --build . --parallel $threadCount
           cmake --install .
 
-      # 5. 配置 Qt 环境变量（补充模块路径，确保链接）
-      - name: 配置 Qt 环境（Linux/macOS）
-        if: matrix.os != 'windows-latest'
+      # 5. 配置 Qt 环境变量（全平台兼容，删除无效变量）
+      - name: 配置 Qt 环境（Linux）
+        if: matrix.os == 'ubuntu-latest'
         run: |
           QT_LIB_DIR="${{ env.QT_INSTALL_DIR }}/lib"
           echo "Qt6_DIR=${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6" >> $GITHUB_ENV
@@ -141,7 +141,19 @@ jobs:
           echo "Qt6Gui_DIR=${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6Gui" >> $GITHUB_ENV
           echo "Qt6Widgets_DIR=${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6Widgets" >> $GITHUB_ENV
           echo "QT_INSTALL_DIR=${{ env.QT_INSTALL_DIR }}" >> $GITHUB_ENV
-          echo "$QT_LIB_DIR" >> $GITHUB_LD_LIBRARY_PATH  # 链接时查找 Qt 库
+          echo "$QT_LIB_DIR" >> $GITHUB_LD_LIBRARY_PATH  # Linux 专属
+          echo "${{ env.QT_INSTALL_DIR }}/bin" >> $GITHUB_PATH
+
+      - name: 配置 Qt 环境（macOS）
+        if: matrix.os == 'macos-latest'
+        run: |
+          QT_LIB_DIR="${{ env.QT_INSTALL_DIR }}/lib"
+          echo "Qt6_DIR=${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6" >> $GITHUB_ENV
+          echo "Qt6Core_DIR=${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6Core" >> $GITHUB_ENV
+          echo "Qt6Gui_DIR=${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6Gui" >> $GITHUB_ENV
+          echo "Qt6Widgets_DIR=${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6Widgets" >> $GITHUB_ENV
+          echo "QT_INSTALL_DIR=${{ env.QT_INSTALL_DIR }}" >> $GITHUB_ENV
+          echo "DYLD_LIBRARY_PATH=$QT_LIB_DIR" >> $GITHUB_ENV  # macOS 库路径
           echo "${{ env.QT_INSTALL_DIR }}/bin" >> $GITHUB_PATH
 
       - name: 配置 Qt 环境（Windows）
@@ -170,7 +182,7 @@ jobs:
           echo "识别到的工程：$PROJECTS"
           echo "PROJECTS=$PROJECTS" >> $GITHUB_ENV
 
-      # 7. 批量构建 dayN 工程（修复链接参数，确保 Qt 模块链接完整）
+      # 7. 批量构建 dayN 工程（全平台链接兼容）
       - name: 批量构建 dayN 工程（Linux/macOS）
         if: matrix.os != 'windows-latest' && env.PROJECTS != ''
         shell: bash
@@ -179,15 +191,20 @@ jobs:
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 构建工程：$proj ===================="
             mkdir -p build/$proj-build
-            # 核心修复：明确 Qt 库路径和链接参数，确保模块链接完整
+            # 平台专属参数
+            OS_FLAGS=""
+            if [[ ${{ matrix.os }} == "macos-latest" ]]; then
+              OS_FLAGS="-DCMAKE_OSX_ARCHITECTURES='x86_64;arm64' -DCMAKE_OSX_DEPLOYMENT_TARGET='12.0'"
+            fi
+            # 编译配置
             cmake -S $proj -B build/$proj-build \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_PREFIX_PATH="${{ env.QT_INSTALL_DIR }}" \
               -DCMAKE_CXX_STANDARD=17 \
               -DCMAKE_CXX_STANDARD_REQUIRED=ON \
               -DCMAKE_CXX_FLAGS="${{ matrix.cxx_flags }}" \
-              -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.cxx_flags }} -L${{ env.QT_INSTALL_DIR }}/lib -lQt6Core -lQt6Gui -lQt6Widgets" \  # 显式链接核心库
-              ${{ matrix.os == 'macos-latest' && '-DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DCMAKE_OSX_DEPLOYMENT_TARGET="12.0"' || '' }}
+              -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.cxx_flags }} -L${{ env.QT_INSTALL_DIR }}/lib -lQt6Core -lQt6Gui -lQt6Widgets" \
+              $OS_FLAGS
             # 并行编译
             cmake --build build/$proj-build --config Release --parallel $(nproc 2>/dev/null || echo 4)
             echo "==================== 工程 $proj 构建完成 ===================="
@@ -208,13 +225,13 @@ jobs:
               -DCMAKE_CXX_STANDARD_REQUIRED=ON `
               -DCMAKE_C_COMPILER="cl.exe" `
               -DCMAKE_CXX_COMPILER="cl.exe" `
-              -DCMAKE_EXE_LINKER_FLAGS="/LIBPATH:$env:QT_INSTALL_DIR\lib Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib"  # 显式链接 Windows 库文件
+              -DCMAKE_EXE_LINKER_FLAGS="/LIBPATH:$env:QT_INSTALL_DIR\lib Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib"
             $threadCount = [math]::Floor((Get-CimInstance Win32_Processor).NumberOfLogicalProcessors / 2)
             cmake --build build/$proj-build --config Release --parallel $threadCount
             Write-Host "==================== 工程 $proj 构建完成 ===================="
           }
 
-      # 8. 批量运行 dayN 工程
+      # 8. 批量运行 dayN 工程（全平台兼容）
       - name: 批量运行 dayN 工程（Linux/macOS）
         if: matrix.os != 'windows-latest' && env.PROJECTS != ''
         shell: bash
@@ -225,11 +242,11 @@ jobs:
             EXEC_PATH=$(find build/$proj-build -name "${proj^}${{ matrix.exec_suffix }}" -type f -executable)
             if [[ -f "$EXEC_PATH" ]]; then
               echo "找到可执行文件：$EXEC_PATH"
-              # macOS 运行时指定 Qt 库路径
+              # 运行时指定库路径
               if [[ ${{ matrix.os }} == "macos-latest" ]]; then
                 DYLD_LIBRARY_PATH="${{ env.QT_INSTALL_DIR }}/lib" $EXEC_PATH || echo "工程 $proj 运行返回非零状态（非致命错误）"
               else
-                $EXEC_PATH || echo "工程 $proj 运行返回非零状态（非致命错误）"
+                LD_LIBRARY_PATH="${{ env.QT_INSTALL_DIR }}/lib" $EXEC_PATH || echo "工程 $proj 运行返回非零状态（非致命错误）"
               fi
             else
               echo "警告：工程 $proj 未找到可执行文件"
