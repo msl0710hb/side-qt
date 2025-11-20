@@ -31,8 +31,7 @@ jobs:
       # 2. 安装系统依赖（仅需 ninja，Qt 由 Action 自带）
       - name: 安装依赖（Ubuntu）
         if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update && sudo apt-get install -y ninja-build
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
       - name: 安装依赖（macOS）
         if: matrix.os == 'macos-latest'
         run: brew install ninja
@@ -40,15 +39,17 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: choco install ninja
 
-      # 3. 一键安装 Qt 6.9.2（含缓存，默认缓存到 $GITHUB_WORKSPACE/../Qt）
+      # 3. 一键安装 Qt 6.9.2（含缓存，Linux 需指定 linux_gcc_64）
       - name: 安装 Qt 6.9.2
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.9.2'
           target: 'desktop'
-          arch: ${{ matrix.os == 'windows-latest' && 'win64_msvc2022_64' || matrix.os == 'macos-latest' && 'clang_64' || 'gcc_64' }}
-          cache: true                    # 启用官方缓存，二次提速
-          install-deps: ${{ matrix.os == 'ubuntu-latest' }}  # 仅 Linux 自动装系统依赖
+          arch: ${{ matrix.os == 'ubuntu-latest' && 'linux_gcc_64' ||
+                    matrix.os == 'macos-latest'   && 'clang_64'       ||
+                    matrix.os == 'windows-latest' && 'win64_msvc2022_64' }}
+          cache: true
+          install-deps: ${{ matrix.os == 'ubuntu-latest' }}
 
       # 4. 自动识别 dayN 工程（忽略 day1、day2）
       - name: 自动识别 dayN 工程
@@ -56,7 +57,7 @@ jobs:
         shell: bash
         run: |
           if [[ ${{ matrix.os }} == "windows-latest" ]]; then
-            PROJECTS=$(powershell -Command "(Get-ChildItem -Directory -Filter 'day[0-9]*' | Where-Object { $_.Name -notin 'day1', 'day2' } | Sort-Object { [int]($_.Name -replace 'day', '') }).Name -join ' ' | Out-String -NoNewline")
+            PROJECTS=$(powershell -Command "(Get-ChildItem -Directory -Filter 'day[0-9]*' | Where-Object { $_.Name -notin 'day1', 'day2' } | Sort-Object { [int]($_.Name -replace 'day', '') }).Name -join ' '")
           else
             PROJECTS=$(find . -maxdepth 1 -type d -name "day[0-9]*" | sed 's|^\./||' | grep -vE '^day1$|^day2$' | sort -V | tr '\n' ' ' | sed 's/ $//')
           fi
