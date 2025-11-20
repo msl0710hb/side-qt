@@ -144,18 +144,20 @@ jobs:
         shell: pwsh
         run: |
           echo "Qt6_DIR=$env:QT_INSTALL_DIR\lib\cmake\Qt6" >> $env:GITHUB_ENV
-          echo "QT_INSTALL_DIR=$env:QT_INSTALL_DIR" >> $env:GITHUB_ENV
+          echo "QT_INSTALL_DIR=$env:QT_INSTALL_DIR" >> $GITHUB_ENV
           echo "$env:QT_INSTALL_DIR\bin" >> $GITHUB_PATH
 
-      # 6. 自动识别 dayN 工程（无换行符）
-      - name: 自动识别 dayN 工程
+      # 6. 自动识别 dayN 工程（核心修改：过滤 day1、day2）
+      - name: 自动识别 dayN 工程（忽略 day1、day2）
         id: find_projects
         shell: bash
         run: |
           if [[ ${{ matrix.os }} == "windows-latest" ]]; then
-            PROJECTS=$(powershell -Command "(Get-ChildItem -Directory -Filter 'day[0-9]*' | Sort-Object { [int]($_.Name -replace 'day', '') }).Name -join ' ' | Out-String -NoNewline")
+            # Windows 平台：过滤掉 day1、day2
+            PROJECTS=$(powershell -Command "(Get-ChildItem -Directory -Filter 'day[0-9]*' | Where-Object { $_.Name -notin 'day1', 'day2' } | Sort-Object { [int]($_.Name -replace 'day', '') }).Name -join ' ' | Out-String -NoNewline")
           else
-            PROJECTS=$(find . -maxdepth 1 -type d -name "day[0-9]*" | sed 's|^\./||' | sort -V | tr '\n' ' ' | sed 's/ $//')
+            # Linux/macOS 平台：用 grep -v 排除 day1、day2
+            PROJECTS=$(find . -maxdepth 1 -type d -name "day[0-9]*" | sed 's|^\./||' | grep -vE '^day1$|^day2$' | sort -V | tr '\n' ' ' | sed 's/ $//')
           fi
           echo "识别到的工程：$PROJECTS"
           echo "PROJECTS=$PROJECTS" >> $GITHUB_ENV
