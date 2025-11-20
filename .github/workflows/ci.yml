@@ -78,7 +78,7 @@ jobs:
           echo "C:\Program Files\7-Zip" >> $env:GITHUB_PATH
           echo "CMAKE_PREFIX_PATH=C:\Program Files\CMake\bin" >> $env:GITHUB_ENV
 
-      # 2. 下载 Qt 源码（缓存命中则跳过）
+      # 2. 下载 Qt 源码（仅缓存未命中时）
       - name: 下载 Qt 源码（Linux/macOS）
         if: matrix.os != 'windows-latest' && steps.cache-qt.outputs.cache-hit != 'true'
         run: |
@@ -100,10 +100,11 @@ jobs:
             throw "Qt 源码下载不完整！"
           }
 
-      # 3. 解压源码（仅保留 qtbase 模块）
+      # 3. 解压并提取 qtbase（仅缓存未命中时）
       - name: 解压并提取 qtbase（Linux/macOS）
-        if: matrix.os != 'windows-latest'
+        if: matrix.os != 'windows-latest' && steps.cache-qt.outputs.cache-hit != 'true'
         run: |
+          ls -l ${{ matrix.qt_file }}
           if [[ ${{ matrix.qt_file }} == *.tar.xz ]]; then
             tar -xf ${{ matrix.qt_file }}
           else
@@ -114,7 +115,7 @@ jobs:
           echo "QT_INSTALL_DIR=${{ github.workspace }}/qt-6.9.2-install" >> $GITHUB_ENV
 
       - name: 解压并提取 qtbase（Windows）
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-latest' && steps.cache-qt.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           7z x ${{ matrix.qt_file }} -aoa -bd
@@ -122,7 +123,7 @@ jobs:
           echo "QT_BASE_DIR=$qtBaseDir" >> $env:GITHUB_ENV
           echo "QT_INSTALL_DIR=${{ github.workspace }}\qt-6.9.2-install" >> $env:GITHUB_ENV
 
-      # 4. 编译 qtbase（缓存命中则跳过）
+      # 4. 编译 qtbase（仅缓存未命中时）
       - name: 编译 qtbase（Linux/macOS）
         if: matrix.os != 'windows-latest' && steps.cache-qt.outputs.cache-hit != 'true'
         run: |
@@ -233,7 +234,6 @@ jobs:
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 运行工程：$proj ===================="
             EXEC_NAME=$(echo "$proj" | sed 's/^./\U&/')
-            # macOS 兼容：使用 -perm +111 替代 -executable
             EXEC_PATH=$(find "build/$proj-build" -type f -perm +111 -name "$EXEC_NAME${{ matrix.exec_suffix }}" | head -n1)
             if [[ -f "$EXEC_PATH" ]]; then
               echo "找到可执行文件：$EXEC_PATH"
