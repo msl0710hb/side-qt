@@ -142,56 +142,58 @@ jobs:
           echo "Qt6_DIR=$env:QT_INSTALL_DIR\lib\cmake\Qt6" >> $env:GITHUB_ENV
           echo "$env:QT_INSTALL_DIR\bin" >> $env:GITHUB_PATH
 
-      # 6. 自动识别 dayN 工程（核心修复：去除换行符，用空格拼接）
+      # 6. 自动识别 dayN 工程（无换行符）
       - name: 自动识别 dayN 工程
         id: find_projects
         shell: bash
         run: |
           if [[ ${{ matrix.os }} == "windows-latest" ]]; then
-            # Windows 平台：用空格拼接，去除换行
             PROJECTS=$(powershell -Command "(Get-ChildItem -Directory -Filter 'day[0-9]*' | Sort-Object { [int]($_.Name -replace 'day', '') }).Name -join ' ' | Out-String -NoNewline")
           else
-            # Linux/macOS 平台：用 tr 去除换行，用空格拼接
             PROJECTS=$(find . -maxdepth 1 -type d -name "day[0-9]*" | sed 's|^\./||' | sort -V | tr '\n' ' ' | sed 's/ $//')
           fi
-          # 输出识别结果（无换行）
           echo "识别到的工程：$PROJECTS"
-          # 设置环境变量（确保无换行）
           echo "PROJECTS=$PROJECTS" >> $GITHUB_ENV
 
-      # 7. 批量构建 dayN 工程
-      - name: 批量构建 dayN 工程
-        if: env.PROJECTS != ''
+      # 7. 批量构建 dayN 工程（核心修复：按系统拆分脚本，避免命令冲突）
+      - name: 批量构建 dayN 工程（Linux/macOS）
+        if: matrix.os != 'windows-latest' && env.PROJECTS != ''
         shell: bash
         run: |
           IFS=' ' read -r -a projects_arr <<< "$PROJECTS"
+          preset=${{ matrix.os == 'macos-latest' && 'macos-release' || 'linux-release' }}
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 构建工程：$proj ===================="
             mkdir -p build/$proj-build
-            preset=${{ matrix.os == 'macos-latest' && 'macos-release' || (matrix.os == 'windows-latest' && 'win-release' || 'linux-release') }}
             cmake --preset=$preset -S $proj -B build/$proj-build
-            # 并行编译
-            if [[ ${{ matrix.os }} == "windows-latest" ]]; then
-              cmake --build build/$proj-build --config Release --parallel (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors
-            else
-              cmake --build build/$proj-build --config Release --parallel $(nproc 2>/dev/null || echo 4)
-            fi
+            cmake --build build/$proj-build --config Release --parallel $(nproc 2>/dev/null || echo 4)
             echo "==================== 工程 $proj 构建完成 ===================="
           done
 
-      # 8. 批量运行工程
-      - name: 批量运行 dayN 工程
-        if: env.PROJECTS != ''
+      - name: 批量构建 dayN 工程（Windows）
+        if: matrix.os == 'windows-latest' && env.PROJECTS != ''
+        shell: pwsh
+        run: |
+          $projectsArr = $env:PROJECTS -split ' ' | Where-Object { $_ -ne '' }
+          $preset = "win-release"
+          foreach ($proj in $projectsArr) {
+            Write-Host "`n==================== 构建工程：$proj ===================="
+            mkdir -p build/$proj-build
+            cmake --preset=$preset -S $proj -B build/$proj-build
+            $threadCount = [math]::Floor((Get-CimInstance Win32_Processor).NumberOfLogicalProcessors / 2)
+            cmake --build build/$proj-build --config Release --parallel $threadCount
+            Write-Host "==================== 工程 $proj 构建完成 ===================="
+          }
+
+      # 8. 批量运行 dayN 工程（按系统拆分脚本）
+      - name: 批量运行 dayN 工程（Linux/macOS）
+        if: matrix.os != 'windows-latest' && env.PROJECTS != ''
         shell: bash
         run: |
           IFS=' ' read -r -a projects_arr <<< "$PROJECTS"
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 运行工程：$proj ===================="
-            if [[ ${{ matrix.os }} == "windows-latest" ]]; then
-              EXEC_PATH=$(find build/$proj-build -name "${proj^^}${{ matrix.exec_suffix }}" -type f -path "*/Release/*")
-            else
-              EXEC_PATH=$(find build/$proj-build -name "${proj^}${{ matrix.exec_suffix }}" -type f -executable -path "*/Release/*")
-            fi
+            EXEC_PATH=$(find build/$proj-build -name "${proj^}${{ matrix.exec_suffix }}" -type f -executable -path "*/Release/*")
             if [[ -f "$EXEC_PATH" ]]; then
               echo "找到可执行文件：$EXEC_PATH"
               $EXEC_PATH || echo "工程 $proj 运行返回非零状态（非致命错误）"
@@ -200,3 +202,23 @@ jobs:
             fi
             echo "==================== 工程 $proj 运行完成 ===================="
           done
+
+      - name: 批量运行 dayN 工程（Windows）
+        if: matrix.os == 'windows-latest' && env.PROJECTS != ''
+        shell: pwsh
+        run: |
+          $projectsArr = $env:PROJECTS -split ' ' | Where-Object { $_ -ne '' }
+          foreach ($proj in $projectsArr) {
+            Write-Host "`n==================== 运行工程：$proj ===================="
+            $execPath = Get-ChildItem -Path build/$proj-build -Filter "${proj.ToUpper()}${{ matrix.exec_suffix }}" -Recurse -File | Where-Object { $_.DirectoryName -match "Release" } | Select-Object -First 1 -ExpandProperty FullName
+            if (Test-Path $execPath) {
+              Write-Host "找到可执行文件：$execPath"
+              & $execPath
+              if ($LASTEXITCODE -ne 0) {
+                Write-Warning "工程 $proj 运行返回非零状态（非致命错误）"
+              }
+            } else {
+              Write-Warning "警告：工程 $proj 未找到可执行文件"
+            }
+            Write-Host "==================== 工程 $proj 运行完成 ===================="
+          }
