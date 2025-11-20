@@ -59,18 +59,12 @@ jobs:
       - name: 安装依赖（macOS 纯净版）
         if: matrix.os == 'macos-latest'
         run: |
-          # 彻底卸载系统自带 brew（解决索引污染问题）
           /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" || true
-          # 重新安装 brew 到默认路径
           /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          # 配置 brew 环境变量（确保当前会话可用）
           echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
           eval "$(/opt/homebrew/bin/brew shellenv)"
-          # 安装核心依赖（无版本冲突风险）——已移除不存在的 sed
           brew install cmake ninja python3 wget pkg-config
-          # 强制清理缓存，避免残留问题
           brew cleanup -s --prune=all
-          # 再次验证依赖可用性
           cmake --version || exit 1
           ninja --version || exit 1
           python3 --version || exit 1
@@ -239,13 +233,14 @@ jobs:
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 运行工程：$proj ===================="
             EXEC_NAME=$(echo "$proj" | sed 's/^./\U&/')
-            EXEC_PATH=$(find build/$proj-build -name "$EXEC_NAME${{ matrix.exec_suffix }}" -type f -executable)
+            # macOS 兼容：使用 -perm +111 替代 -executable
+            EXEC_PATH=$(find "build/$proj-build" -type f -perm +111 -name "$EXEC_NAME${{ matrix.exec_suffix }}" | head -n1)
             if [[ -f "$EXEC_PATH" ]]; then
               echo "找到可执行文件：$EXEC_PATH"
               if [[ ${{ matrix.os }} == "macos-latest" ]]; then
-                DYLD_LIBRARY_PATH="${{ env.QT_INSTALL_DIR }}/lib" $EXEC_PATH || echo "工程 $proj 运行返回非零状态（非致命错误）"
+                DYLD_LIBRARY_PATH="${{ env.QT_INSTALL_DIR }}/lib" "$EXEC_PATH" || echo "工程 $proj 运行返回非零状态（非致命错误）"
               else
-                LD_LIBRARY_PATH="${{ env.QT_INSTALL_DIR }}/lib" $EXEC_PATH || echo "工程 $proj 运行返回非零状态（非致命错误）"
+                LD_LIBRARY_PATH="${{ env.QT_INSTALL_DIR }}/lib" "$EXEC_PATH" || echo "工程 $proj 运行返回非零状态（非致命错误）"
               fi
             else
               echo "警告：工程 $proj 未找到可执行文件（预期文件名：$EXEC_NAME${{ matrix.exec_suffix }}）"
