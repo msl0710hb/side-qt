@@ -188,11 +188,14 @@ jobs:
           echo "识别到的工程：$PROJECTS"
           echo "PROJECTS=$PROJECTS" >> $GITHUB_ENV
 
-      # 7. 批量构建 dayN 工程
+     # 7. 批量构建 dayN 工程（Linux/macOS）
       - name: 批量构建 dayN 工程（Linux/macOS）
         if: matrix.os != 'windows-latest' && env.PROJECTS != ''
         shell: bash
         run: |
+          # 保证变量始终生效
+          echo "Qt6_DIR=${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6"
+          ls -lh "${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6/Qt6Config.cmake" || echo ⚠️ Qt6Config.cmake 不存在
           IFS=' ' read -r -a projects_arr <<< "$PROJECTS"
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 构建工程：$proj ===================="
@@ -200,6 +203,7 @@ jobs:
             cmake -S $proj -B build/$proj-build \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_PREFIX_PATH="${{ env.QT_INSTALL_DIR }}" \
+              -DQt6_DIR="${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6" \
               -DCMAKE_CXX_STANDARD=17 \
               -DCMAKE_CXX_STANDARD_REQUIRED=ON \
               -DCMAKE_CXX_FLAGS="${{ matrix.cxx_flags }}"
