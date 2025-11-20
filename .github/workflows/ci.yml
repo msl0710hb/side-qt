@@ -3,40 +3,38 @@ on: [push, pull_request]
 
 jobs:
   build-macos:
-    runs-on: macos-14  # 推荐使用较新的 macOS 镜像
+    runs-on: macos-14
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Qt
+      - name: Install Qt  # 修复 host 参数 + 保留你原有配置
         uses: jurplel/install-qt-action@v3
         with:
-          version: '6.9.2'  # 与你的 Qt 版本一致
-          host: 'macos'
+          version: '6.9.2'
+          host: 'mac'  # 关键修复：macos → mac
           target: 'desktop'
           arch: 'clang_64'
-          install-deps: true  # 自动安装依赖
-          cache: true  # 缓存 Qt 安装包，加速后续构建
+          install-deps: true
+          cache: true
+          examples: false  # 保留你添加的参数
 
       - name: Configure Xcode
         run: |
-          sudo xcode-select -switch /Applications/Xcode_16.4.app/Contents/Developer  # 匹配日志中的 Xcode 版本
-          xcodebuild -version  # 验证 Xcode 配置
-
-      - name: Create build directory
-        run: mkdir -p build/day0-build && cd build/day0-build
+          sudo xcode-select -switch /Applications/Xcode_16.4.app/Contents/Developer
+          xcodebuild -version
 
       - name: CMake Configure
         run: |
-          cd build/day0-build
+          mkdir -p build/day0-build && cd build/day0-build
           cmake \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$Qt6_DIR" \  # 关键：指定 Qt 安装路径
-            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \  # 保留双架构
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \  # 匹配日志中的最低版本
-            ../../  # 你的 CMakeLists.txt 所在路径
+            -DCMAKE_PREFIX_PATH="$Qt6_DIR" \
+            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+            ../../
 
       - name: Build
         run: |
           cd build/day0-build
-          make -j$(sysctl -n hw.ncpu)  # 多线程编译
+          make -j$(sysctl -n hw.ncpu)
