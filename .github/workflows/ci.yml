@@ -150,30 +150,27 @@ jobs:
           cmake --build . --parallel $threadCount
           cmake --install .
 
-      # 5. 配置 Qt 环境变量
-      - name: 配置 Qt 环境（Linux）
-        if: matrix.os == 'ubuntu-latest'
+      # 5. 配置 Qt 环境变量（全平台无条件执行，确保缓存命中时变量也存在）
+      - name: 配置 Qt 环境变量
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
-          echo "Qt6_DIR=${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6" >> $GITHUB_ENV
-          echo "QT_INSTALL_DIR=${{ env.QT_INSTALL_DIR }}" >> $GITHUB_ENV
-          echo "${{ env.QT_INSTALL_DIR }}/bin" >> $GITHUB_PATH
-          echo "LD_LIBRARY_PATH=${{ env.QT_INSTALL_DIR }}/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "QT_INSTALL_DIR=${{ github.workspace }}/qt-6.9.2-install" >> $GITHUB_ENV
+          echo "Qt6_DIR=${{ github.workspace }}/qt-6.9.2-install/lib/cmake/Qt6" >> $GITHUB_ENV
+          echo "${{ github.workspace }}/qt-6.9.2-install/bin" >> $GITHUB_PATH
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            echo "LD_LIBRARY_PATH=${{ github.workspace }}/qt-6.9.2-install/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            echo "DYLD_LIBRARY_PATH=${{ github.workspace }}/qt-6.9.2-install/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
+          fi
 
-      - name: 配置 Qt 环境（macOS）
-        if: matrix.os == 'macos-latest'
-        run: |
-          echo "Qt6_DIR=${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6" >> $GITHUB_ENV
-          echo "QT_INSTALL_DIR=${{ env.QT_INSTALL_DIR }}" >> $GITHUB_ENV
-          echo "${{ env.QT_INSTALL_DIR }}/bin" >> $GITHUB_PATH
-          echo "DYLD_LIBRARY_PATH=${{ env.QT_INSTALL_DIR }}/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
-
-      - name: 配置 Qt 环境（Windows）
-        if: matrix.os == 'windows-latest'
+      - name: 配置 Qt 环境变量（Windows）
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          echo "Qt6_DIR=$env:QT_INSTALL_DIR\lib\cmake\Qt6" >> $env:GITHUB_ENV
-          echo "QT_INSTALL_DIR=$env:QT_INSTALL_DIR" >> $env:GITHUB_ENV
-          echo "$env:QT_INSTALL_DIR\bin" >> $env:GITHUB_PATH
+          echo "QT_INSTALL_DIR=${{ github.workspace }}\qt-6.9.2-install" >> $env:GITHUB_ENV
+          echo "Qt6_DIR=${{ github.workspace }}\qt-6.9.2-install\lib\cmake\Qt6" >> $env:GITHUB_ENV
+          echo "${{ github.workspace }}\qt-6.9.2-install\bin" >> $env:GITHUB_PATH
 
       # 6. 自动识别 dayN 工程（忽略 day1、day2）
       - name: 自动识别 dayN 工程（忽略 day1、day2）
@@ -188,14 +185,13 @@ jobs:
           echo "识别到的工程：$PROJECTS"
           echo "PROJECTS=$PROJECTS" >> $GITHUB_ENV
 
-     # 7. 批量构建 dayN 工程（Linux/macOS）
+      # 7. 批量构建 dayN 工程
       - name: 批量构建 dayN 工程（Linux/macOS）
         if: matrix.os != 'windows-latest' && env.PROJECTS != ''
         shell: bash
         run: |
-          # 保证变量始终生效
-          echo "Qt6_DIR=${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6"
-          ls -lh "${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6/Qt6Config.cmake" || echo ⚠️ Qt6Config.cmake 不存在
+          echo "Qt6_DIR=${{ env.Qt6_DIR }}"
+          ls -lh "${{ env.Qt6_DIR }}/Qt6Config.cmake" || echo ⚠️ Qt6Config.cmake 不存在
           IFS=' ' read -r -a projects_arr <<< "$PROJECTS"
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 构建工程：$proj ===================="
@@ -203,7 +199,7 @@ jobs:
             cmake -S $proj -B build/$proj-build \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_PREFIX_PATH="${{ env.QT_INSTALL_DIR }}" \
-              -DQt6_DIR="${{ env.QT_INSTALL_DIR }}/lib/cmake/Qt6" \
+              -DQt6_DIR="${{ env.Qt6_DIR }}" \
               -DCMAKE_CXX_STANDARD=17 \
               -DCMAKE_CXX_STANDARD_REQUIRED=ON \
               -DCMAKE_CXX_FLAGS="${{ matrix.cxx_flags }}"
@@ -215,6 +211,8 @@ jobs:
         if: matrix.os == 'windows-latest' && env.PROJECTS != ''
         shell: pwsh
         run: |
+          Write-Host "Qt6_DIR=$env:Qt6_DIR"
+          if (!(Test-Path "$env:Qt6_DIR\Qt6Config.cmake")) { Write-Warning "⚠️ Qt6Config.cmake 不存在" }
           $projectsArr = $env:PROJECTS -split ' ' | Where-Object { $_ -ne '' }
           foreach ($proj in $projectsArr) {
             Write-Host "`n==================== 构建工程：$proj ===================="
@@ -222,6 +220,7 @@ jobs:
             cmake -S $proj -B build/$proj-build `
               -DCMAKE_BUILD_TYPE=Release `
               -DCMAKE_PREFIX_PATH="$env:QT_INSTALL_DIR" `
+              -DQt6_DIR="$env:Qt6_DIR" `
               -DCMAKE_CXX_STANDARD=17 `
               -DCMAKE_CXX_STANDARD_REQUIRED=ON
             $threadCount = [math]::Floor((Get-CimInstance Win32_Processor).NumberOfLogicalProcessors / 2)
