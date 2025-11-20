@@ -228,7 +228,7 @@ jobs:
             Write-Host "==================== 工程 $proj 构建完成 ===================="
           }
 
-      # 8. 批量运行 dayN 工程（Linux/macOS）
+      # 8. 批量运行 dayN 工程
       - name: 批量运行 dayN 工程（Linux/macOS）
         if: matrix.os != 'windows-latest' && env.PROJECTS != ''
         shell: bash
@@ -237,8 +237,9 @@ jobs:
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 运行工程：$proj ===================="
             EXEC_NAME=$(echo "$proj" | sed 's/^./\U&/')
-            # Linux 兼容：使用 -perm /111 替代 -perm +111
-            EXEC_PATH=$(find "build/$proj-build" -type f -perm /111 -name "$EXEC_NAME${{ matrix.exec_suffix }}" | head -n1)
+            # 动态选择 -perm 参数，Linux 用 /111，macOS 用 +111
+            FIND_PERM=$([[ "$(uname)" == "Linux" ]] && echo "/111" || echo "+111")
+            EXEC_PATH=$(find "build/$proj-build" -type f -perm "$FIND_PERM" -name "$EXEC_NAME${{ matrix.exec_suffix }}" | head -n1)
             if [[ -f "$EXEC_PATH" ]]; then
               echo "找到可执行文件：$EXEC_PATH"
               if [[ ${{ matrix.os }} == "macos-latest" ]]; then
