@@ -1,4 +1,4 @@
-name: Qt 6.9.2 无插件 CI（side-qt 目录适配+CMakePresets）
+name: Qt 6.9.2 无插件 CI（side-qt 最终适配版）
 on:
   push:
     branches: [ main ]
@@ -15,24 +15,22 @@ jobs:
             qt_file: qt-everywhere-src-6.9.2.tar.xz
             qt_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/qt-everywhere-src-6.9.2.tar.xz
             exec_suffix: ""
-            preset: "macos-release"
+            cxx_flags: "-stdlib=libc++"
           - os: windows-latest
             qt_file: qt-everywhere-src-6.9.2.zip
             qt_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/qt-everywhere-src-6.9.2.zip
             exec_suffix: .exe
-            preset: "win-release"
+            cxx_flags: ""
           - os: ubuntu-latest
             qt_file: qt-everywhere-src-6.9.2.tar.xz
             qt_url: https://download.qt.io/archive/qt/6.9/6.9.2/single/qt-everywhere-src-6.9.2.tar.xz
             exec_suffix: ""
-            preset: "linux-release"
+            cxx_flags: "-ldl -lpthread"
     runs-on: ${{ matrix.os }}
 
     steps:
       - name: 检出项目源代码（side-qt 根目录）
         uses: actions/checkout@v4
-        # 若 yml 在 side-qt 子目录，需添加 path: side-qt，否则默认检出到 side-qt 根目录
-        # （根据你的描述，yml 在 side-qt 下，无需额外 path 配置）
 
       # 1. 安装基础依赖
       - name: 安装依赖（Ubuntu 24.04）
@@ -95,7 +93,6 @@ jobs:
           fi
           cd qt-everywhere-src-6.9.2/qtbase
           echo "QT_BASE_DIR=$(pwd)" >> $GITHUB_ENV
-          # 明确 side-qt 根目录下的 Qt 安装路径
           echo "QT_INSTALL_DIR=${{ github.workspace }}/qt-6.9.2-install" >> $GITHUB_ENV
 
       - name: 解压并提取 qtbase（Windows）
@@ -134,7 +131,7 @@ jobs:
           cmake --build . --parallel $threadCount
           cmake --install .
 
-      # 5. 配置 Qt 环境变量（供 CMakePresets 使用）
+      # 5. 配置 Qt 环境变量
       - name: 配置 Qt 环境（Linux/macOS）
         if: matrix.os != 'windows-latest'
         run: |
@@ -148,7 +145,7 @@ jobs:
         run: |
           echo "Qt6_DIR=$env:QT_INSTALL_DIR\lib\cmake\Qt6" >> $env:GITHUB_ENV
           echo "QT_INSTALL_DIR=$env:QT_INSTALL_DIR" >> $env:GITHUB_ENV
-          echo "$env:QT_INSTALL_DIR\bin" >> $env:GITHUB_PATH
+          echo "$env:QT_INSTALL_DIR\bin" >> $GITHUB_PATH
 
       # 6. 自动识别 dayN 工程（无换行符）
       - name: 自动识别 dayN 工程
@@ -162,30 +159,28 @@ jobs:
           fi
           echo "识别到的工程：$PROJECTS"
           echo "PROJECTS=$PROJECTS" >> $GITHUB_ENV
-          # 验证 side-qt 根目录下的 CMakePresets.json 存在
-          echo "side-qt 根目录：${{ github.workspace }}"
-          ls -l ${{ github.workspace }}/CMakePresets.json || { echo "错误：side-qt 根目录未找到 CMakePresets.json，请确认文件位置！"; exit 1; }
 
-      # 7. 批量构建 dayN 工程（核心适配：明确 side-qt 根目录 presets 路径）
+      # 7. 批量构建 dayN 工程（核心：放弃 --preset，直接传参）
       - name: 批量构建 dayN 工程（Linux/macOS）
         if: matrix.os != 'windows-latest' && env.PROJECTS != ''
         shell: bash
         run: |
           IFS=' ' read -r -a projects_arr <<< "$PROJECTS"
-          # 明确 side-qt 根目录下的 CMakePresets.json 绝对路径
-          ROOT_PRESETS="${{ github.workspace }}/CMakePresets.json"
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 构建工程：$proj ===================="
-            # 强制加载 side-qt 根目录的 presets，无需工程目录有预设
-            cmake -S $proj -B build/${{ matrix.preset }}/$proj \
-              -DCMAKE_PROJECT_INCLUDE_BEFORE="$ROOT_PRESETS" \
-              --preset=${{ matrix.preset }} \
-              -DprojectName=$proj \
-              -DCMAKE_PREFIX_PATH="${{ env.QT_INSTALL_DIR }}" \
+            mkdir -p build/$proj-build
+            # 直接传递所有配置，不依赖 CMakePresets
+            cmake -S $proj -B build/$proj-build \
               -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_CXX_STANDARD=17
+              -DCMAKE_PREFIX_PATH="${{ env.QT_INSTALL_DIR }}" \
+              -DCMAKE_CXX_STANDARD=17 \
+              -DCMAKE_CXX_STANDARD_REQUIRED=ON \
+              -DCMAKE_CXX_FLAGS="${{ matrix.cxx_flags }}" \
+              -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.cxx_flags }}" \
+              -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+              -DCMAKE_OSX_DEPLOYMENT_TARGET="12.0"
             # 并行编译
-            cmake --build build/${{ matrix.preset }}/$proj --config Release --parallel $(nproc 2>/dev/null || echo 4)
+            cmake --build build/$proj-build --config Release --parallel $(nproc 2>/dev/null || echo 4)
             echo "==================== 工程 $proj 构建完成 ===================="
           done
 
@@ -194,22 +189,22 @@ jobs:
         shell: pwsh
         run: |
           $projectsArr = $env:PROJECTS -split ' ' | Where-Object { $_ -ne '' }
-          $ROOT_PRESETS = Join-Path -Path ${{ github.workspace }} -ChildPath "CMakePresets.json"
           foreach ($proj in $projectsArr) {
             Write-Host "`n==================== 构建工程：$proj ===================="
-            cmake -S $proj -B build/${{ matrix.preset }}/$proj `
-              -DCMAKE_PROJECT_INCLUDE_BEFORE="$ROOT_PRESETS" `
-              --preset=${{ matrix.preset }} `
-              -DprojectName=$proj `
-              -DCMAKE_PREFIX_PATH="$env:QT_INSTALL_DIR" `
+            mkdir -p build/$proj-build
+            cmake -S $proj -B build/$proj-build `
               -DCMAKE_BUILD_TYPE=Release `
-              -DCMAKE_CXX_STANDARD=17
+              -DCMAKE_PREFIX_PATH="$env:QT_INSTALL_DIR" `
+              -DCMAKE_CXX_STANDARD=17 `
+              -DCMAKE_CXX_STANDARD_REQUIRED=ON `
+              -DCMAKE_C_COMPILER="cl.exe" `
+              -DCMAKE_CXX_COMPILER="cl.exe"
             $threadCount = [math]::Floor((Get-CimInstance Win32_Processor).NumberOfLogicalProcessors / 2)
-            cmake --build build/${{ matrix.preset }}/$proj --config Release --parallel $threadCount
+            cmake --build build/$proj-build --config Release --parallel $threadCount
             Write-Host "==================== 工程 $proj 构建完成 ===================="
           }
 
-      # 8. 批量运行 dayN 工程（适配构建目录）
+      # 8. 批量运行 dayN 工程
       - name: 批量运行 dayN 工程（Linux/macOS）
         if: matrix.os != 'windows-latest' && env.PROJECTS != ''
         shell: bash
@@ -217,7 +212,7 @@ jobs:
           IFS=' ' read -r -a projects_arr <<< "$PROJECTS"
           for proj in "${projects_arr[@]}"; do
             echo -e "\n==================== 运行工程：$proj ===================="
-            EXEC_PATH=$(find build/${{ matrix.preset }}/$proj -name "${proj^}${{ matrix.exec_suffix }}" -type f -executable)
+            EXEC_PATH=$(find build/$proj-build -name "${proj^}${{ matrix.exec_suffix }}" -type f -executable)
             if [[ -f "$EXEC_PATH" ]]; then
               echo "找到可执行文件：$EXEC_PATH"
               $EXEC_PATH || echo "工程 $proj 运行返回非零状态（非致命错误）"
@@ -234,7 +229,7 @@ jobs:
           $projectsArr = $env:PROJECTS -split ' ' | Where-Object { $_ -ne '' }
           foreach ($proj in $projectsArr) {
             Write-Host "`n==================== 运行工程：$proj ===================="
-            $execPath = Get-ChildItem -Path build/${{ matrix.preset }}/$proj -Filter "${proj.ToUpper()}${{ matrix.exec_suffix }}" -Recurse -File | Select-Object -First 1 -ExpandProperty FullName
+            $execPath = Get-ChildItem -Path build/$proj-build -Filter "${proj.ToUpper()}${{ matrix.exec_suffix }}" -Recurse -File | Select-Object -First 1 -ExpandProperty FullName
             if (Test-Path $execPath) {
               Write-Host "找到可执行文件：$execPath"
               & $execPath
